@@ -24,7 +24,8 @@ library.
 ** Testing
 
 The ~test/~ directory contains the code to setup and start the supported servers, Hunchentoot and
-Clack.
+Clack. It's also a good place to use as an example of how the SDK can be used, especially since
+there are some differences depending on the backend (Hunchentoot or Clack).
 
 ** License
 
