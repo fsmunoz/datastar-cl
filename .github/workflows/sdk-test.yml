@@ -35,7 +35,7 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           ros install neil-lindquist/ci-utils # for run-fiveam
-	  screen sbcl --eval '(ql:quickload "datastar-cl-tests")'
-	  go run github.com/starfederation/datastar/sdk/tests/cmd/datastar-sdk-tests@latest -server http://localhost:7331
-	  go run github.com/starfederation/datastar/sdk/tests/cmd/datastar-sdk-tests@latest -server http://localhost:7332	  
+          screen sbcl --eval '(ql:quickload "datastar-cl-tests")'
+          go run github.com/starfederation/datastar/sdk/tests/cmd/datastar-sdk-tests@latest -server http://localhost:7331
+          go run github.com/starfederation/datastar/sdk/tests/cmd/datastar-sdk-tests@latest -server http://localhost:7332	  
 
