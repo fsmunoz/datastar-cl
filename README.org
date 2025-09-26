@@ -1,0 +1,31 @@
+* Datastar Common Lisp SDK
+
+** What is it
+
+This is a Common Lisp implementation of the Datastar SKD, following the Architecture Decision Record
+(ADR) as closely as possible, making the necessary adjustments for Common Lisp.
+
+Focus has been on implementing the core SDK functionality, with additional utilities planned.
+
+** Approach
+
+The SDK uses CLOS and is based on a ~sse-generator~ class, that currently has two subclasses:
+
+1. ~hunchentoot-sse-generator~: used with the Hunchentoot web server.
+2. ~clack-sse-generator~: used with the Clack web application environment.
+
+Both approaches use a stream, although in different ways and initialized differently. For Clack, the
+work done is at the Lack level, and has been tested with both Hunchentoot and Woo.
+
+We are currently using JZON as the JSON parser in two places: ~read-signals~ and ~patch-signals~.
+This is not a hard requirement to remove, but for now it allows immediate use and testing of the
+library.
+
+** Testing
+
+The ~test/~ directory contains the code to setup and start the supported servers, Hunchentoot and
+Clack.
+
+** License
+
+The code follows Datastar's licence choice, the MIT license.
