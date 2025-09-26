@@ -33,7 +33,6 @@ jobs:
       # These steps run our tests
       - name: Run tests 
         if: runner.os != 'Windows'
-        shell: bash
         run: |
           ros install neil-lindquist/ci-utils # for run-fiveam
 	  screen sbcl --eval '(ql:quickload "datastar-cl-tests")'
