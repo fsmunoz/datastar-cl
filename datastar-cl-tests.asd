@@ -9,10 +9,14 @@
   :pathname "tests"
   :depends-on (#:hunchentoot
 	       #:clack
+	       #:woo
+	       #:drakma
 	       #:datastar-cl)
   :components ((:file "package")
-	       (:file "test")	       
+	       (:file "test")
                (:file "test-hunchentoot")
 	       (:file "test-clack")
-	       (:file "test-servers")
+	       (:file "test-clack-hunchentoot")
+	       (:file "test-sse")
+	       (:file "test-sse-response")
 	       ))

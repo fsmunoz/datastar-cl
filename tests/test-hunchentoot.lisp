@@ -11,18 +11,26 @@
 
 (defun start-hunchentoot-server (&key (port *hunchentoot-http-port*))
   "Start Hunchentoot server"
-  (setf *server* (make-instance 'hunchentoot:easy-acceptor :port port))
-  (hunchentoot:start *server*))
+  (setf *server* (make-instance 'hunchentoot:easy-acceptor :port port :address "localhost"))
+  (hunchentoot:start *server*)
+  (format t "~%Hunchentoot server started on port ~a~%" port))
 
 (defun stop-hunchentoot-server ()
   "Stop Hunchentoot server"
   (hunchentoot:stop *server*))
 
+
+;; Test endpoint using with-sse-response macro
 (hunchentoot:define-easy-handler (test :uri "/test") ()
-  (let* ((signals (read-signals hunchentoot:*request*))  ;; hash table
-         (generator (datastar-cl:make-hunchentoot-sse-generator
-                     hunchentoot:*request*)))
-    (handle-datastar-signals signals generator)
-    nil))
+  (let ((signals (datastar-cl:read-signals hunchentoot:*request*)))
+    (datastar-cl:with-sse-response (gen hunchentoot:*request*)
+      (handle-datastar-signals signals gen))))
+
+(hunchentoot:define-easy-handler (root :uri "/") ()
+  (setf (hunchentoot:content-type*) "text/plain")
+  "Up.")
+
+
+
 
 

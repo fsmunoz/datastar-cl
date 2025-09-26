@@ -1,11 +1,39 @@
+
 * Datastar Common Lisp SDK
+
+[[https://github.com/fsmunoz/datastar-cl/actions/workflows/sdk-test.yml][https://github.com/fsmunoz/datastar-cl/actions/workflows/sdk-test.yml/badge.svg]]
+
+#+begin_src text
+================================================================
+
+       |             
+      / \            DATASTAR HYPERMEDIA FRAMEWORK
+     /___\          
+    |  D  |          
+    | C*L |                '(DATASTAR-CL)    
+    |     |                 
+   /|  |  |\
+  | |_ |__| |              COMMON LISP SDK
+  |/  /.\  \|            
+
+================================================================
+#+end_src
 
 ** What is it
 
-This is a Common Lisp implementation of the Datastar SKD, following the Architecture Decision Record
-(ADR) as closely as possible, making the necessary adjustments for Common Lisp.
+This is a Common Lisp implementation of the Datastar SDK, following the Datastar Architecture
+Decision Record (ADR) as closely as possible, making the necessary adjustments for Common Lisp.
 
 Focus has been on implementing the core SDK functionality, with additional utilities planned.
+
+** How to use it
+
+Clone the repository somewhere ASDF2 can find it (~~/src/lisp~ is commonly already configured), and
+use Quicklisp to load it:
+
+#+begin_src text
+(ql:quickload "datastar-cl")
+#+end_src
 
 ** Approach
 
@@ -21,10 +49,23 @@ We are currently using JZON as the JSON parser in two places: ~read-signals~ and
 This is not a hard requirement to remove, but for now it allows immediate use and testing of the
 library.
 
+** SSE and Common Lisp webservers
+
+When using Clack with Woo, SSE connections are limited by Woo's worker thread count. Each SSE
+connection blocks one worker for its entire duration. This is a fundamental architectural
+constraint - see ~SSE-WOO-LIMITATIONS.org~ for details and practical solutions.
+
+For applications with many SSE connections, Hunchentoot is recommended (no connection limit), or
+using a polling approach. By default, Hunchentoot (and Clack+Hunchentoot) uses a push approach,
+while Clack+Woo defaults to poll.
+
 ** Testing
 
 The ~test/~ directory contains the code to setup and start the supported servers, Hunchentoot and
-Clack.
+Clack (with Woo and Hunchentoot backends, others can be added). It's also a good place to use as an
+example of how the SDK can be used, especially since there are some differences depending on the
+backend (Hunchentoot or Clack). SSE has a specific test file that can also serve as an example, and
+some important edge cases (like what happens when connections are interrupted) are tested as well.
 
 ** License
 

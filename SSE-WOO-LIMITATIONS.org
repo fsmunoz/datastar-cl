@@ -1,0 +1,162 @@
+* SSE with Woo: understanding the limitations
+
+"Limitations", "problems", "issues": all these words should be read as the result of my own
+understanding, and not absolute terms for any of the solutions discussed.
+
+** The problem
+
+When using Clack with Woo as the backend, Server-Sent Events (SSE) connections are constrained by
+Woo's worker-based architecture:
+
+- Woo uses a limited number of worker threads (configured via ~:worker-num~, typically 1-6)
+- Each SSE connection requires a persistent handler that cannot return
+- *One worker thread is blocked for the entire duration of each SSE connection*
+- This limits concurrent SSE connections to the number of available workers
+
+This might be wrong, and be the result of a misinterpretation of the Woo, Clack, and Lack
+documentation and examples, but there isn't a lot (or anything) about SSE. What I do know is that
+using the SSE loop in the ~(with-sse-connection ...)~ with Clack+Woo doesn't work, because the Woo
+worker will be stuck with it, and by default there's only 1 worker.
+
+** Why it isn't  solved here
+
+SSE _seems_ to be fundamentally incompatible with Woo's async event-driven model, at least if we
+consider it in terms of long-running streaming processes:
+
+1. *SSE is write-driven*: Server continuously pushes data to clients
+2. *Woo's streams are thread-bound*: Response streams are tied to the worker thread's libev event
+   loop
+3. *Handlers must stay alive*: If a handler returns, the connection/stream closes immediately
+4. *No periodic callback API*: Clack/Woo provides no mechanism for scheduled writes without
+   blocking, or at least none that I could find documented.
+
+SSE requires the handler to actively push data, meaning it must remain in the worker thread's execution context. 
+
+** Practical Solutions
+
+*** Option 1: Increase Worker Count (Simple)
+
+Configure more workers when starting Woo:
+
+#+begin_src lisp
+(clack:clackup
+ your-app
+ :server :woo
+ :worker-num 20)  ; Increase from default (typically 1)
+#+end_src
+
+*When to use*:
+- You know the maximum number of concurrent SSE connections
+- Memory overhead acceptable (whatever that is)
+
+*Limitations*:
+- Has a hard limit
+- Workers dedicated to SSE aren't available for other requests
+- 20 workers, if an app has 2 streams, will limit to 5 web client sessions. Not exactly a lot.  
+
+*** Option 2: Use Hunchentoot (Recommended for SSE)
+
+Hunchentoot spawns a thread per request, so it has no worker limit:
+
+#+begin_src lisp
+;; Same code works with both backends
+(with-sse-connection (gen request-or-env-responder)
+  (loop
+    (patch-signals gen (get-current-data))))
+#+end_src
+
+*When to use*:
+- Need many concurrent SSE connections
+- SSE is primary use case
+- Don't need Woo's high-throughput async I/O for other endpoints (i.e. non-SSE)
+
+*Advantages*:
+- No connection limit
+- Simpler mental model for SSE
+- No configuration needed
+
+*** Option 3: Use client polling
+
+If using Woo, use client-side polling
+
+#+begin_src html
+  :|data-on-interval__duration.100ms| "$mode === 'pull' && @get('/stream')"  
+#+end_src
+
+This is documented in Datastar's documentation
+(https://data-star.dev/how_tos/poll_the_backend_at_regular_intervals) as something doable when the
+backed doesn't support push-based mechanisms well, and it's supported by the SDK: this support was
+specifically added to support this approach, ~(with-sse-response ...)~ will send and close the
+connection.
+
+*When to use*:
+- Whenever a polling approach is preferred
+- If Woo is to be used without any other changes (this plays well with Woo's approach)
+
+*** Option 4: Hybrid Architecture (Advanced)
+
+Use Woo for static/API endpoints, Hunchentoot for SSE:
+
+#+begin_src lisp
+;; Woo on port 8080 (static files, API)
+(clack:clackup static-app :server :woo :port 8080)
+
+;; Hunchentoot on port 8081 (SSE only)
+(clack:clackup sse-app :server :hunchentoot :port 8081)
+#+end_src
+
+Nginx/HAProxy routes ~/stream~ to :8081, everything else to :8080.
+
+*When to use*:
+- Need both Woo's performance AND unlimited SSE
+- Can manage multiple processes
+- Have reverse proxy infrastructure
+
+** Recommendation
+
+*For most applications*: Use Hunchentoot if SSE is a core feature.SSE (long-lived, write-heavy connections) is well aligned with Hunchentoot's strengths (thread-per-connection).
+
+** How we got here
+
+Earlier versions of this SDK attempted to "solve" (well...) the Woo worker limitation through thread
+spawning (which would add threading on top of threading, so a bad idea anyway). This approach failed
+because:
+
+- Woo's response streams cannot be accessed from spawned threads
+- Attempts to write from other threads result in libev errors
+- This is a fundamental architectural constraint (or paradigm), not a bug
+
+This document exists to provide honest guidance rather than broken workarounds: if you use
+(with-sse-connection ...) with Clack+Woo, without any change, be prepared for errors since the
+workers will not be released.
+
+** More details
+
+For those interested in why thread spawning doesn't work,
+
+#+begin_src lisp
+;; What we tried (doesn't work):
+(lambda (responder)
+  (let ((gen (make-clack-sse-generator env responder)))
+    (bt:make-thread
+      (lambda ()
+        ;; This thread tries to write to response stream
+        (loop (write-to-stream gen ...))))  ; ← ERROR
+    nil))  ; Handler returns, freeing worker
+
+;; Error: The value NIL is not of type SB-SYS:SYSTEM-AREA-POINTER
+;; Reason: libev structures (ev-io watchers) don't exist in spawned thread
+#+end_src
+
+The response stream in Woo is not just a stream - it's tied to libev I/O watchers that only exist in
+the worker thread context. Writing from another thread accesses invalid memory.
+
+** Summary
+
+- *Woo + SSE = Limited by worker count* (fundamental constraint)
+- *Solution 1*: Increase ~:worker-num~ (simple, limited)
+- *Solution 2*: Use Hunchentoot (recommended for SSE)
+- *Solution 3*: CLient based polling (recommended for Clack+Woo)
+- *Solution 3*: Hybrid architecture (advanced)
+
+Choose based on your application's needs.

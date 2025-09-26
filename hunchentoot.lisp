@@ -24,18 +24,62 @@
     (setf (response generator)
           (flex:make-flexi-stream raw-stream :external-format :utf-8))))
 
+(defmethod read-signals ((request hunchentoot:request) 
+                         &key (catch-errors *catch-errors-p*))
+  "Read signals from Hunchentoot request."
+  (flet ((do-read ()
+           (let* ((method (hunchentoot:request-method request))
+                  (json-data (extract-json-data request method)))
+             (when json-data
+               (parse-and-validate-json json-data)))))
+    (if catch-errors
+        (handler-case
+            (do-read)
+          (datastar-error (condition)
+            (format *error-output* "~&[datastar-cl] ~A~%" condition)
+            nil))
+        (do-read))))
 
-(defmethod read-signals ((request hunchentoot:request))
-  "Extract and parse datastar signals from Hunchentoot request. Uses the
-jzon library to return an HASH-TABLE with the parsed JSON."
-  (let ((json-data (if (eq (hunchentoot:request-method request) :get)
-                       (hunchentoot:get-parameter "datastar" request)
-                       (hunchentoot:raw-post-data :request request :force-text t))))
-    (when json-data
-      (jzon:parse json-data))))
+;; Hunchentoot - GET method
+(defmethod extract-json-data ((request hunchentoot:request) (method (eql :get)))
+  "Extract JSON from Hunchentoot GET request query string."
+  (let ((datastar-param (hunchentoot:get-parameter "datastar" request)))
+    (when datastar-param
+      (if (alexandria:emptyp datastar-param)
+          (error 'invalid-json-error
+                 :json-string ""
+                 :message "Empty datastar query parameter")
+          datastar-param))))
+
+;; Hunchentoot - POST method
+(defmethod extract-json-data ((request hunchentoot:request) (method (eql :post)))
+  "Extract JSON from Hunchentoot POST request body."
+  (let ((raw-data (hunchentoot:raw-post-data :request request :force-text t)))
+    (if (or (null raw-data) (alexandria:emptyp raw-data))
+        (error 'invalid-json-error
+               :json-string ""
+               :message "Empty POST request body")
+        raw-data)))
+
+
+(defmethod keep-sse-alive :before ((generator hunchentoot-sse-generator))
+  "Check connection health before sending keep-alive."
+  (ensure-connection-open generator))
+
+(defmethod keep-sse-alive ((generator hunchentoot-sse-generator))
+  "Send keep-alive comment through Hunchentoot SSE stream."
+  (bt:with-lock-held ((lock generator))
+    (let ((stream (response generator)))
+      ;; SSE uses ":" as comment. There is no specific keep-alive
+      ;; mechanism, so this sends a comment (which is ignored)
+      (format stream ": keep-alive~%~%")
+      (force-output stream))))
 
 ;; Constructor
 
 (defun make-hunchentoot-sse-generator (request)
-  "Create an Hunchentoot SSE generatorwith REQUEST."
+  "Create a Hunchentoot SSE generator with REQUEST."
   (make-instance 'hunchentoot-sse-generator :request request :response nil))
+
+
+

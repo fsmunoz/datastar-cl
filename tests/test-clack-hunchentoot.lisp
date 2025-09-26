@@ -1,25 +1,25 @@
 ;;;; Common Lisp SDK for Datastar
 ;;;;
-;;;; Clack server
+;;;; Clack server with Hunchentoot backend
 
 (in-package #:datastar-cl-tests)
 
 
-(defparameter *clack-http-port* 7332 "Port in which to listen")
-(defvar *clack-handler* nil
-  "Clack server handler instance")
+(defparameter *clack-hunchentoot-http-port* 7333 "Port in which to listen")
+(defvar *clack-hunchentoot-handler* nil
+  "Clack+Hunchentoot server handler instance")
 
 
-(defun stop-clack-server ()
-  "Stop Clack server"
-  (when *clack-handler*
-    (clack:stop *clack-handler*)
-    (setf *clack-handler* nil)))
+(defun stop-clack-hunchentoot-server ()
+  "Stop Clack+Hunchentoot server"
+  (when *clack-hunchentoot-handler*
+    (clack:stop *clack-hunchentoot-handler*)
+    (setf *clack-hunchentoot-handler* nil)))
 
 
-(defun start-clack-server (&key (port *clack-http-port*))
-  "Start Clack server with routing."
-  (setf *clack-handler*
+(defun start-clack-hunchentoot-server (&key (port *clack-hunchentoot-http-port*))
+  "Start Clack server with Hunchentoot backend and routing."
+  (setf *clack-hunchentoot-handler*
         (clack:clackup
          (lambda (env)
            (let ((path (getf env :path-info)))
@@ -53,5 +53,5 @@
                 '(404 (:content-type "text/plain")
                       ("Not Found"))))))
          :port port
-         :server :woo))
-  (format t "Clack server started on port ~a~%" port))
+         :server :hunchentoot))
+  (format t "Clack+Hunchentoot server started on port ~a~%" port))

@@ -1,0 +1,58 @@
+name: SDK Test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Run at the first day of each month to detect external breakage
+    - cron: '0 0 1 * *'
+
+jobs:
+  test:
+    name: Test datastar-cl SDK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Roswell
+        uses: 40ants/setup-lisp@v2
+        with:
+          asdf-system: datastar-cl
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libev-dev golang-go
+
+      - name: Start test servers and run tests
+        run: |
+          nohup qlot exec ros -s datastar-cl-tests -e '(datastar-cl-tests::start-all-servers)' -e '(loop (sleep 1))'&
+          echo "Started Lisp servers"
+          sleep 3
+          echo "Waiting for test servers on ports 7331, 7332, 7333..."
+          for port in 7331 7332 7333; do
+            echo "Checking port $port..."
+            for i in {1..30}; do
+              if curl -f -s http://localhost:$port/ > /dev/null 2>&1; then
+                echo "OK  Port $port is ready"
+                break
+              fi
+              if [ $i -eq 30 ]; then
+                echo "FAIL Port $port failed to start after 60 seconds"
+                exit 1
+              fi
+              echo "  Waiting for port $port... ($i/30)"
+              sleep 2
+            done
+          done
+          echo "All servers are ready!"
+
+          chmod +x tests/run-sdk-tests.sh
+          tests/run-sdk-tests.sh
+
+          chmod +x tests/run-sse-tests.sh
+          tests/run-sse-tests.sh
+
