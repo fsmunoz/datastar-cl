@@ -35,12 +35,7 @@ jobs:
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          # Install the roswell script for the test library
           ros install neil-lindquist/ci-utils # for run-fiveam
-          #ros install prove # for run-prove:
-          #ros install rove # for [run-] rove
-          # Run the tests
-          #rove foo.asd
 	  screen sbcl --eval '(ql:quickload "datastar-cl-tests")'
 	  go run github.com/starfederation/datastar/sdk/tests/cmd/datastar-sdk-tests@latest -server http://localhost:7331
 	  go run github.com/starfederation/datastar/sdk/tests/cmd/datastar-sdk-tests@latest -server http://localhost:7332	  
