@@ -1,0 +1,47 @@
+### Example configuration for Github Actions ###
+name: CI
+
+# Github Actions allows for running jobs on a wide variety of events
+on:
+  push: # Commits pushed to Github
+  pull_request: # Pull request is update
+  workflow_dispatch: # Manually dispatched from Github's UI
+  schedule: # Run at the first day of each month
+    # This can detect external factors breaking the tests (such as changes to libraries or CL implementations)
+    # Syntax follows that of cron
+    - cron: '0 0 1 * *'
+
+jobs:
+  test:
+    name: ${{ matrix.lisp }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Each combination of lisp and os are tested
+      matrix:
+        lisp: [sbcl-bin]
+        os: [ubuntu-latest]
+
+    steps:
+      # This action checks out our code in the working directory
+      - uses: actions/checkout@v2
+      # setup-lisp requires an env variable to be set, not matrix.lisp
+      - name: Set LISP env var
+        run: echo "LISP=${{ matrix.lisp }}" >> $GITHUB_ENV
+      # This action installs roswell and a few other utilities such as qlot
+      - uses: 40ants/setup-lisp@v2
+
+      # These steps run our tests
+      - name: Run tests 
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          # Install the roswell script for the test library
+          ros install neil-lindquist/ci-utils # for run-fiveam
+          #ros install prove # for run-prove:
+          #ros install rove # for [run-] rove
+          # Run the tests
+          #rove foo.asd
+	  screen sbcl --eval '(ql:quickload "datastar-cl-tests")'
+	  go run github.com/starfederation/datastar/sdk/tests/cmd/datastar-sdk-tests@latest -server http://localhost:7331
+	  go run github.com/starfederation/datastar/sdk/tests/cmd/datastar-sdk-tests@latest -server http://localhost:7332	  
+
