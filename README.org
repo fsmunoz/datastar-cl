@@ -2,8 +2,8 @@
 
 ** What is it
 
-This is a Common Lisp implementation of the Datastar SKD, following the Architecture Decision Record
-(ADR) as closely as possible, making the necessary adjustments for Common Lisp.
+This is a Common Lisp implementation of the Datastar SDK, following the Datastar Architecture
+Decision Record (ADR) as closely as possible, making the necessary adjustments for Common Lisp.
 
 Focus has been on implementing the core SDK functionality, with additional utilities planned.
 
