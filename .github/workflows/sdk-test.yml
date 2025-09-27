@@ -41,7 +41,7 @@ jobs:
             http://localhost:7331
             http://localhost:7332
           tail: true
-          wait-for: 10s
+          wait-for: 1m
           log-output: true
       - name: Run tests
         run: |
