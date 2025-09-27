@@ -39,8 +39,8 @@ jobs:
             echo "Starting SBCL"
             ros run --eval '(ql:quickload "datastar-cl-tests")' --non-interactive &
           wait-on: |
-            http://localhost:7331
-            http://localhost:7332
+            http://localhost/test:7331
+            http://localhost/test:7332
           tail: true
           wait-for: 1m
           log-output: true
