@@ -10,5 +10,8 @@
 ;; Clack server
 (start-clack-server)
 
-(stop-clack-server)
-(stop-hunchentoot-server)
+;;(stop-clack-server)
+;;(stop-hunchentoot-server)
+
+;; Used to keep the process running for backgrounding
+(loop)

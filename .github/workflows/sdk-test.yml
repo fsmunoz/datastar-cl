@@ -36,9 +36,11 @@ jobs:
         run: |
           ros install neil-lindquist/ci-utils # for run-fiveam
           echo "Starting SBCL"
-          nohup sbcl --eval '(ql:quickload "datastar-cl-tests")' >sbcl.log 2>&1 &
+          sbcl --eval '(ql:quickload "datastar-cl-tests")' --non-interactive  > /dev/null 2>&1 
           echo "Sleeping for 5 seconds"
           sleep 5
+	  echo "Testing Hunchentoot"
           go run github.com/starfederation/datastar/sdk/tests/cmd/datastar-sdk-tests@latest -server http://localhost:7331
+	  echo "Testing Clack"
           go run github.com/starfederation/datastar/sdk/tests/cmd/datastar-sdk-tests@latest -server http://localhost:7332	  
 
