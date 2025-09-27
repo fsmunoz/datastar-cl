@@ -28,8 +28,8 @@ jobs:
       - name: Set LISP env var
         run: echo "LISP=${{ matrix.lisp }}" >> $GITHUB_ENV
       # This action installs roswell and a few other utilities such as qlot
-      - uses: 40ants/setup-lisp@v2
       - uses: JarvusInnovations/background-action@v1
+      - uses: 40ants/setup-lisp@v2      
 
       # These steps run our tests
         name: Bootstrap System Under Test
