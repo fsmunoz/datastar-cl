@@ -9,6 +9,7 @@
   :pathname "tests"
   :depends-on (#:hunchentoot
 	       #:clack
+	       #:woo
 	       #:datastar-cl)
   :components ((:file "package")
 	       (:file "test")	       
