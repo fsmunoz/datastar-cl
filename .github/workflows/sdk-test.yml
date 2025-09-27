@@ -45,6 +45,7 @@ jobs:
           wait-for: 10s
           log-output: true
       - name: Run tests
+        run: |
           go run github.com/starfederation/datastar/sdk/tests/cmd/datastar-sdk-tests@latest -server http://localhost:7331     
           go run github.com/starfederation/datastar/sdk/tests/cmd/datastar-sdk-tests@latest -server http://localhost:7332
 
