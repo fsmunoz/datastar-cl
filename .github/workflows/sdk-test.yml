@@ -35,7 +35,7 @@ jobs:
         with:
           run: |
             ros install neil-lindquist/ci-utils
-	    sudo apt-get install -y libev-dev
+            sudo apt-get install -y libev-dev
             echo "Starting SBCL"
             ros run --eval '(ql:quickload "datastar-cl-tests")' --non-interactive &
           wait-on: |
