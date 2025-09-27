@@ -33,7 +33,6 @@ jobs:
 
       # These steps run our tests
       - name: Bootstrap System Under Test
-        with: 
           run: |
             ros install neil-lindquist/ci-utils
             echo "Starting SBCL"
