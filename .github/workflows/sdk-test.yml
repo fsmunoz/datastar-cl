@@ -37,8 +37,7 @@ jobs:
           ros install neil-lindquist/ci-utils # for run-fiveam
           sudo apt-get install -y screen
           mkdir ~/.screen && chmod 700 ~/.screen
-          export SCREENDIR=$HOME/.screen
-          screen -d -m  sbcl --eval '(ql:quickload "datastar-cl-tests")'
+          SCREENDIR=$HOME/.screen screen -d -m  sbcl --eval '(ql:quickload "datastar-cl-tests")'
           sleep 5
           go run github.com/starfederation/datastar/sdk/tests/cmd/datastar-sdk-tests@latest -server http://localhost:7331
           go run github.com/starfederation/datastar/sdk/tests/cmd/datastar-sdk-tests@latest -server http://localhost:7332	  
