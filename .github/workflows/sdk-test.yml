@@ -36,7 +36,7 @@ jobs:
           run: |
             ros install neil-lindquist/ci-utils
             echo "Starting SBCL"
-            sbcl --eval '(ql:quickload "datastar-cl-tests")' --non-interactive &
+            ros run --eval '(ql:quickload "datastar-cl-tests")' --non-interactive &
           wait-on: |
             http://localhost:7331
             http://localhost:7332
