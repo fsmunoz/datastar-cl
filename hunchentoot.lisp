@@ -11,18 +11,46 @@
   (:documentation "Hunchentoot-specific SSE generator implementation."))
 
 
-(defmethod initialize-instance :after ((generator hunchentoot-sse-generator) &key request &allow-other-keys)
-  "Set up SSE headers and response stream for Hunchentoot."
+;; (defmethod initialize-instance :after ((generator hunchentoot-sse-generator) &key request &allow-other-keys)
+;;   "Set up SSE headers and response stream for Hunchentoot."
+;;   ;; Set headers using Hunchentoot API
+;;   (setf (hunchentoot:content-type*) "text/event-stream; charset=utf-8"
+;;         (hunchentoot:header-out "Cache-Control") "no-cache")
+;;   ;; HTTP/1.1 specific headers
+;;   (when (string= (hunchentoot:server-protocol request) "HTTP/1.1")
+;;     (setf (hunchentoot:header-out "Connection") "keep-alive"))
+;;   ;; Initialize response stream
+;;   (let ((raw-stream (hunchentoot:send-headers)))
+;;     (setf (response generator)
+;;           (flex:make-flexi-stream raw-stream :external-format :utf-8))))
+
+
+(defmethod initialize-instance :after ((generator hunchentoot-sse-generator) &key request  &allow-other-keys)
+  "Set up SSE headers and response stream for Hunchentoot. Use compression if available"
   ;; Set headers using Hunchentoot API
-  (setf (hunchentoot:content-type*) "text/event-stream; charset=utf-8"
-        (hunchentoot:header-out "Cache-Control") "no-cache")
-  ;; HTTP/1.1 specific headers
-  (when (string= (hunchentoot:server-protocol request) "HTTP/1.1")
-    (setf (hunchentoot:header-out "Connection") "keep-alive"))
-  ;; Initialize response stream
-  (let ((raw-stream (hunchentoot:send-headers)))
-    (setf (response generator)
-          (flex:make-flexi-stream raw-stream :external-format :utf-8))))
+  (let ((accepts-zstd (search "zstd" (hunchentoot:header-in* :accept-encoding request)
+                               :test #'string-equal)))
+    (setf (hunchentoot:content-type*) "text/event-stream; charset=utf-8"
+          (hunchentoot:header-out "Cache-Control") "no-cache")
+    ;; HTTP/1.1 specific headers
+    
+    (when (string= (hunchentoot:server-protocol request) "HTTP/1.1")
+      (setf (hunchentoot:header-out "Connection") "keep-alive"))
+    (when accepts-zstd
+      (setf (hunchentoot:header-out "Content-Encoding") "zstd"
+            (hunchentoot:header-out "Vary") "Accept-Encoding"))
+    (let* ((raw-stream (hunchentoot:send-headers))
+           (compressed-stream (when accepts-zstd
+                                (zstd:make-compressing-stream raw-stream :level 3)))
+           (utf8-stream (if compressed-stream
+                            (flex:make-flexi-stream compressed-stream :external-format :utf-8)
+                            (flex:make-flexi-stream raw-stream :external-format :utf-8)
+                            )))
+    
+      (setf (response generator) utf8-stream)
+      (setf (compressed-stream generator) compressed-stream))))
+    
+
 
 (defmethod read-signals ((request hunchentoot:request) 
                          &key (catch-errors *catch-errors-p*))

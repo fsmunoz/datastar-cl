@@ -32,6 +32,8 @@
   (let ((headers '(:content-type "text/event-stream; charset=utf-8"
                    :cache-control "no-cache"
                    :connection "keep-alive")))
+    ;; FIXME
+    (setf (compressed-stream generator) nil)
     (setf (response generator)
           (lack/util/writer-stream:make-writer-stream
            (funcall responder `(200 ,headers))))))

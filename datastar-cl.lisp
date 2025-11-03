@@ -102,6 +102,9 @@
    (response :initarg :response
              :accessor response
              :documentation "The response stream.")
+   (compressed-stream :initarg :compressed-stream
+                      :accessor compressed-stream
+                      :documentation "The compressed stream (depending on the algorithm)")
    (lock :initform (bt:make-lock)
          :reader lock
          :documentation "Thread safety lock for stream operations."))
@@ -154,6 +157,26 @@
   (declare (ignore event-type data-lines event-id retry-duration))
   (ensure-connection-open generator))
 
+;; (defmethod send-event ((generator sse-generator) event-type data-lines
+;;                        &key event-id retry-duration)
+;;   "Send an SSE event with thread safety.
+
+;;    Signals: STREAM-ERROR if the response stream is closed or writing fails.
+;;             This is standard CL behavior - no wrapping is performed."
+;;   (bt:with-lock-held ((lock generator))
+;;     (let ((stream (response generator)))
+;;       (format stream "event: ~a~%" (string-downcase (string event-type)))
+;;       (when event-id
+;;         (format stream "id: ~a~%" event-id))
+;;       (when retry-duration
+;;         (format stream "retry: ~a~%" retry-duration))
+;;       (dolist (line data-lines)
+;;         (format stream "data: ~a~%" line))
+;;       (format stream "~%")
+;;       ;; flush immediately
+;;       (force-output stream))))
+
+
 (defmethod send-event ((generator sse-generator) event-type data-lines
                        &key event-id retry-duration)
   "Send an SSE event with thread safety.
@@ -161,7 +184,8 @@
    Signals: STREAM-ERROR if the response stream is closed or writing fails.
             This is standard CL behavior - no wrapping is performed."
   (bt:with-lock-held ((lock generator))
-    (let ((stream (response generator)))
+    (let ((stream (response generator))
+          (compressed-stream (compressed-stream generator)))
       (format stream "event: ~a~%" (string-downcase (string event-type)))
       (when event-id
         (format stream "id: ~a~%" event-id))
@@ -171,6 +195,8 @@
         (format stream "data: ~a~%" line))
       (format stream "~%")
       ;; flush immediately
+      (when compressed-stream
+        (finish-output (compressed-stream generator)))
       (force-output stream))))
 
 (defmethod patch-elements ((generator sse-generator) (elements string)

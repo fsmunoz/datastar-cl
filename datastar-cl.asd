@@ -14,7 +14,10 @@
                #:flexi-streams
                #:hunchentoot
                #:clack
-               #:lack-util-writer-stream)
+               #:lack-util-writer-stream
+               #:zstd
+               #:gzip-stream
+               #:salza2)
   :components ((:file "package")
                (:file "datastar-cl")
                (:file "conditions")
