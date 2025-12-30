@@ -16,6 +16,7 @@
    :*default-patch-mode*
    :*default-retry-duration*
    :*default-auto-remove*
+   :*default-compression-priority*
    :*catch-errors-p*
 
    ;; Backend constructors

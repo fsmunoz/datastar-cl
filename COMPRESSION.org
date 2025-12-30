@@ -1,0 +1,291 @@
+#+TITLE: Compression Support in Datastar-CL
+#+AUTHOR: Datastar-CL Contributors
+#+OPTIONS: toc:2
+
+* Overview
+
+Datastar-CL supports HTTP compression (zstd) for Server-Sent Events (SSE) responses. Compression is
+automatically enabled when the client sends an =Accept-Encoding= header that includes a supported
+algorithm. This didn't come easy, and this document explains why things are the way they are.
+
+* Stream Architecture
+
+SSE responses flow through a layered stream stack. The layers differ between Hunchentoot and Clack
+backends due to their different architectures -- and determining this, and the order, was more
+involved than what I would like to admit, perhaps because of wanting to keep the existing approach
+of using CLOS for abstracting away the Hunchentoot and Clack handlers.
+
+** Hunchentoot Stream Stack
+
+This one was easy:
+
+#+begin_example
+Application (SSE events as strings)
+    │
+    v
+Flexi-Stream (UTF-8 encoding)
+    │
+    v
+Zstd Compressing Stream (compression)
+    │
+    v
+Raw Socket Stream (from hunchentoot:send-headers)
+    │
+    v
+Network
+#+end_example
+
+Hunchentoot returns a raw binary socket stream from =send-headers=. HTTP chunked encoding is handled
+at the socket layer independently of our writes. Compression works naturally because all writes flow
+directly to the socket: the only thing needed was adding the compression stream before the
+flexi-stream, and it worked.
+
+** Clack/Woo Stream Stack
+
+That wasn't the case for Clack/Woo: using it like that would give something like this:
+
+#+begin_src
+* Request completely sent off
+< HTTP/1.1 200 OK
+< Date: Tue, 30 Dec 2025 19:20:27 GMT
+< Transfer-Encoding: chunked
+< Content-Type: text/event-stream; charset=utf-8
+< Cache-Control: no-cache
+< Connection: keep-alive
+< Content-Encoding: zstd
+< Vary: Accept-Encoding
+< 
+event: datastar-patch-signals
+data: signals {"time": "3976111227", "count": 1}
+
+* Leftovers after chunking: 18 bytes
+* Connection #0 to host localhost:7332 left intact
+#+end_src
+
+Why does this work?
+
+** How Woo handles streaming
+
+When using Clack with Woo for streaming responses:
+
+1. =(funcall responder '(200 headers))= returns a writer callback
+2. This callback is Woo's =make-streaming-writer=
+3. Every call to this callback wraps data in HTTP chunked encoding:
+   =<HEX-SIZE>\r\n<DATA>\r\n=
+
+** Why naive compression fails
+
+Zstd compression emits data in multiple write operations:
+
+#+begin_example
+SSE Event: "event: datastar-patch-signals\ndata: {...}\n\n"
+    │
+    v
+Zstd compresses and calls write-sequence multiple times:
+    │
+    ├─> Write 1: frame header bytes
+    ├─> Write 2: compressed data bytes
+    └─> Write 3: checksum bytes
+#+end_example
+
+Without buffering, /each write becomes a separate callback invocation/, and Woo wraps each in HTTP
+chunked encoding:
+
+#+begin_example
+HTTP Chunk 1: 5\r\n<partial-zstd-frame>\r\n
+HTTP Chunk 2: 42\r\n<more-partial-data>\r\n
+HTTP Chunk 3: 4\r\n<checksum>\r\n
+#+end_example
+
+The client receives fragmented zstd frames across HTTP chunks, decompression fails because zstd
+expects complete frames, and the above "Leftovers after chunking: N bytes" happens, connection is
+closed.
+
+* The buffering solution
+
+Adding another stream to the mix ended up being a solution. Not sure if ideal, but it does work.
+
+** Buffering-Writer-Stream
+
+The =buffering-writer-stream= class (defined in =clack.lisp=) is added to:
+
+1. Collecting all writes into an internal buffer
+2. Only calling the Woo callback on explicit =finish-output=
+3. Sending the complete buffer as a single HTTP chunk
+
+#+begin_src lisp
+(defclass buffering-writer-stream (fundamental-binary-output-stream)
+  ((buffer :initform (make-array 1024 :element-type '(unsigned-byte 8)
+                                      :adjustable t :fill-pointer 0))
+   (callback :initarg :callback)))
+#+end_src
+
+The flow is like this (with compression):
+
+#+begin_example
+SSE Event
+    │
+    v
+Flexi-Stream (UTF-8)
+    │
+    v
+Zstd Compressing Stream
+    │ (multiple write-sequence calls)
+    v
+Buffering-Writer-Stream
+    │ (all writes collected in buffer)
+    │
+    v [on finish-output]
+    │
+    v
+Woo Writer Callback (ONE call = ONE HTTP chunk)
+    │
+    v
+Network: Single chunk with complete zstd frame
+#+end_example
+
+Without compression, we use =lack/util/writer-stream= directly (the original behavior before
+compression was added):
+
+#+begin_example
+SSE Event
+    │
+    v
+lack/util/writer-stream
+    │ (stream-write-string converts entire string to bytes
+    │  via babel:string-to-octets in ONE call)
+    v
+Woo Writer Callback (ONE call = ONE HTTP chunk)
+    │
+    v
+Network: Single chunk with complete SSE event
+#+end_example
+
+** When is this used
+
+The buffering stream is *only* used when compression is enabled:
+
+#+begin_src lisp
+(if found-p
+    ;; With compression: need buffering to collect zstd's multiple writes
+    (let* ((base-stream (make-buffering-writer-stream writer-fn))
+           (comp-stream (make-compression-stream algorithm base-stream compression-level))
+           (utf8-stream (flex:make-flexi-stream comp-stream :external-format :utf-8)))
+      ...)
+    ;; Without compression: use lack/util/writer-stream directly
+    (setf (response generator)
+          (lack/util/writer-stream:make-writer-stream writer-fn)
+          ...))
+#+end_src
+
+Why this works:
+- =lack/util/writer-stream.stream-write-string= converts entire strings to bytes via
+  =babel:string-to-octets= in a *single* callback invocation
+- Before compression was added, this was the only path, and it worked fine
+
+*NB*: =lack/util/writer-stream='s =stream-finish-output= method *closes the stream*:
+
+#+begin_src lisp
+(defmethod stream-finish-output ((stream writer-stream))
+  (funcall (writer-stream-writer stream) nil :close t)  ;; <-- CLOSES!
+  (setf (writer-stream-closed-p stream) t))
+#+end_src
+
+Therefore, =send-event= and =keep-sse-alive= must only call =(finish-output stream)= when
+compression is enabled (i.e., when =comp-stream= is non-nil). Without compression, only
+=(force-output stream)= should be called.
+
+* When to flush
+
+SSE requires real-time streaming: each event must reach the client immediately. With
+compression, this requires flushing through all stream layers.
+
+#+begin_src lisp
+;; IMPORTANT: Only call finish-output on response stream when compression is enabled!
+;; (lack/util/writer-stream's finish-output CLOSES the stream)
+(when comp-stream
+  ;; 1. Flush flexi-stream (writes pending UTF-8 bytes to compression)
+  (finish-output stream)
+  ;; 2. Flush compression stream (emits complete compressed frame to buffering stream)
+  (finish-output comp-stream))
+
+;; 3. Force output on base stream (sends to network) or response stream
+(if base-stream
+    (force-output base-stream)
+    (force-output stream))
+#+end_src
+
+The =finish-output= on the compression stream triggers the buffering stream's
+=stream-finish-output= method, which sends the complete buffer to Woo as a single HTTP chunk.
+
+* Supported Algorithms
+
+| Algorithm | Status                    | Notes                                           |
+|-----------+---------------------------+-------------------------------------------------|
+| zstd      | Implemented               | Recommended - better compression and speed      |
+| gzip      | Not implemented (blocked) | salza2 lacks streaming flush support (see below) |
+
+I'm investigating gzip further to make sure that the above is actually true.
+
+** Algorithm Selection and RFC 7231 Compliance
+
+Algorithm selection follows [[https://datatracker.ietf.org/doc/html/rfc7231#section-5.3.4][RFC 7231 Section 5.3.4]]:
+
+- Server checks client's =Accept-Encoding= header against =*default-compression-priority*=
+- If a match is found, that algorithm is used
+- If *no match is found*, respond *without compression*
+
+The server never errors on unsupported encodings, it falls back to uncompressed responses.
+
+** Why gzip is not (yet) ) implemented
+
+As mentioned above, this is a WIP. The =gzip-stream= library (and salza2 underneath) seems to be
+designed for batch file compression, not real-time (SSE) streaming. The key issue seems to be that
+salza2 lacks a =Z_SYNC_FLUSH= equivalent that would allow emitting complete, decompressible frames
+per SSE message.
+
+Attempted workarounds using concatenated gzip members (RFC 1952) failed because curl's streaming
+decompressor doesn't handle concatenated members properly over chunked HTTP, so I've stopped.
+
+zstd works because cl-zstd provides explicit frame control via =:zstd-e-end=.
+
+* Configuration
+
+** Disabling compression
+
+It can be done on a per-generator basis:
+
+#+begin_src lisp
+;; Per-generator
+(make-clack-sse-generator env responder :disable-compression t)
+
+;; Or in with-sse-response (not yet exposed, uses default)
+#+end_src
+
+** Compression Level
+
+#+begin_src lisp
+;; Default is 3 (fast, reasonable ratio)
+(make-clack-sse-generator env responder :compression-level 3)
+#+end_src
+
+* Testing
+
+Start the servers with e.g. `sbcl --non-interactive --load tests/run.lisp` and:
+
+#+begin_src shell
+# Request with compression
+curl -N --compressed localhost:7332/test-sse
+
+# Check headers
+curl -v -H "Accept-Encoding: zstd" localhost:7332/test-sse 2>&1 | grep -i content-encoding
+#+end_src
+
+** Expected Headers
+
+#+begin_example
+Content-Encoding: zstd
+Vary: Accept-Encoding
+Transfer-Encoding: chunked
+#+end_example
+

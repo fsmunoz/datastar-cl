@@ -59,6 +59,11 @@ For applications with many SSE connections, Hunchentoot is recommended (no conne
 using a polling approach. By default, Hunchentoot (and Clack+Hunchentoot) uses a push approach,
 while Clack+Woo defaults to poll.
 
+** Compression
+
+Support for compression was recently added, currently covering all backends but limited to =zstd=:
+read =COMPRESSION.org= for details.
+
 ** Testing
 
 The ~test/~ directory contains the code to setup and start the supported servers, Hunchentoot and

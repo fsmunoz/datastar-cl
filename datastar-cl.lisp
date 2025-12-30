@@ -16,6 +16,11 @@
 (defparameter *default-auto-remove* t
   "Default auto remove for script execution.")
 
+(defparameter *default-compression-priority* '(:zstd)
+  "Default priority order for compression algorithm selection.
+   Only include implemented algorithms. Per RFC 7231 Section 5.3.4, if none
+   of the client's acceptable encodings are supported, respond without compression.")
+
 ;; Inspired by Hunchentoot's approach (but not identical):
 ;;   [Special variable]
 ;;   *catch-errors-p*
@@ -93,6 +98,35 @@
                              (when auto-remove "data-effect=\"el.remove()\"")))))
     (format nil "<script ~{~a~}>~a</script>" attr-parts script)))
 
+(defun select-compression-algorithm (accept-encoding-header priority-list)
+  "Select compression algorithm from ACCEPT-ENCODING-HEADER based on PRIORITY-LIST.
+
+   Returns (values algorithm-keyword found-p) where algorithm-keyword is one of
+   :zstd, :gzip, etc., or NIL if no supported algorithm is found.
+
+   ACCEPT-ENCODING-HEADER: String like 'gzip, deflate, br' or NIL
+   PRIORITY-LIST: List of keywords like (:zstd :gzip) in preference order"
+  (if (null accept-encoding-header)
+      (values nil nil)
+      (dolist (algorithm priority-list (values nil nil))
+        (let ((algorithm-string (string-downcase (symbol-name algorithm))))
+          (when (search algorithm-string accept-encoding-header :test #'char-equal)
+            (return (values algorithm t)))))))
+
+(defun make-compression-stream (algorithm raw-stream level)
+  "Create a compression stream for ALGORITHM wrapping RAW-STREAM.
+   Returns compression stream or signals error if algorithm is not supported.
+
+   ALGORITHM: Keyword like :zstd or :gzip
+   RAW-STREAM: The underlying binary stream to wrap
+   LEVEL: Compression level (algorithm-specific)"
+  (ecase algorithm
+    (:zstd
+     (zstd:make-compressing-stream raw-stream :level level))
+    (:gzip
+     ;; Future: implement gzip support
+     (error "gzip compression not yet implemented"))))
+
 ;;; Classes
 
 (defclass sse-generator ()
@@ -101,10 +135,15 @@
             :documentation "The HTTP request object.")
    (response :initarg :response
              :accessor response
-             :documentation "The response stream.")
+             :documentation "The response stream (flexi-stream for UTF-8).")
    (compressed-stream :initarg :compressed-stream
+                      :initform nil
                       :accessor compressed-stream
-                      :documentation "The compressed stream (depending on the algorithm)")
+                      :documentation "The compressed stream (depending on the algorithm). NIL if compression is disabled.")
+   (raw-stream :initarg :raw-stream
+               :initform nil
+               :accessor raw-stream
+               :documentation "The underlying raw/base stream for final flushing.")
    (lock :initform (bt:make-lock)
          :reader lock
          :documentation "Thread safety lock for stream operations."))
@@ -185,7 +224,10 @@
             This is standard CL behavior - no wrapping is performed."
   (bt:with-lock-held ((lock generator))
     (let ((stream (response generator))
-          (compressed-stream (compressed-stream generator)))
+          (comp-stream (when (slot-boundp generator 'compressed-stream)
+                         (compressed-stream generator)))
+          (base-stream (when (slot-boundp generator 'raw-stream)
+                         (raw-stream generator))))
       (format stream "event: ~a~%" (string-downcase (string event-type)))
       (when event-id
         (format stream "id: ~a~%" event-id))
@@ -194,10 +236,16 @@
       (dolist (line data-lines)
         (format stream "data: ~a~%" line))
       (format stream "~%")
-      ;; flush immediately
-      (when compressed-stream
-        (finish-output (compressed-stream generator)))
-      (force-output stream))))
+      ;; Flush through the entire stream stack
+      (when comp-stream
+        ;; Only call finish-output on response stream when compression is enabled.
+        ;; This is important because lack/util/writer-stream's finish-output CLOSES the stream!
+        (finish-output stream)           ;; Flush flexi-stream,  writes to compression stream
+        (finish-output comp-stream))     ;; Flush compression stream, emits compressed frame
+      ;; Force output on the raw stream to ensure data reaches network
+      (if base-stream
+          (force-output base-stream)
+          (force-output stream)))))
 
 (defmethod patch-elements ((generator sse-generator) (elements string)
                            &key selector
@@ -341,13 +389,25 @@ Signals conditions for error cases (empty body, etc.)."))
   (:documentation "Close the SSE generator's response stream."))
 
 (defmethod close-sse-generator ((generator sse-generator))
-  "Closes the response stream stored in the generator's RESPONSE slot,
-   (the same for all SSE generator types)."
-  (let ((stream (response generator)))
+  "Close SSE generator streams in proper order for compression support.
+   Closes flexi-stream first, then compression stream to emit final frame.
+   Handles already-closed connections gracefully (e.g., client disconnect)."
+  (let ((comp-stream (when (slot-boundp generator 'compressed-stream)
+                       (compressed-stream generator)))
+        (stream (response generator)))
+    ;; Flush and close flexi-stream first (writes pending chars to compression)
+    ;; Ignore errors if stream is already closed (client disconnected)
     (when (and stream (open-stream-p stream))
-      (force-output stream)
-      (finish-output stream)
-      (close stream))))
+      (ignore-errors
+        (finish-output stream)
+        (close stream)))
+    ;; Then close compression stream (emits final compression frame)
+    ;; Ignore errors - connection may already be closed by client
+    (when comp-stream
+      (ignore-errors
+        (when (open-stream-p comp-stream)
+          (finish-output comp-stream)
+          (close comp-stream))))))
 
 (defmacro with-sse-connection ((generator-var request-or-env-responder
                                 &key (keep-alive-interval 30)

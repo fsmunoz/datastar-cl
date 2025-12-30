@@ -12,6 +12,7 @@
                #:com.inuoe.jzon
                #:quri
                #:flexi-streams
+               #:trivial-gray-streams
                #:hunchentoot
                #:clack
                #:lack-util-writer-stream
