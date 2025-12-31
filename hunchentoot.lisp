@@ -35,7 +35,7 @@
 
    Keywords:
      :disable-compression - When T, disable compression even if client supports it
-     :compression-level - Compression level (default 3 for zstd, 6 for gzip)
+     :compression-level - Compression level (default 3 for zstd)
      :compression-priority - List of algorithms in preference order (default *default-compression-priority*)"
   ;; Set basic SSE headers
   (setf (hunchentoot:content-type*) "text/event-stream; charset=utf-8"
@@ -59,7 +59,7 @@
             (string-downcase (symbol-name algorithm))
             (hunchentoot:header-out "Vary") "Accept-Encoding"))
 
-    ;; Create stream stack: raw → compression (optional) → UTF-8
+    ;; Create stream stack: raw -> compression (optional) -> UTF-8
     (let* ((base-stream (hunchentoot:send-headers))
            (comp-stream (when found-p
                           (make-compression-stream algorithm base-stream compression-level)))
@@ -105,7 +105,6 @@
                :json-string ""
                :message "Empty POST request body")
         raw-data)))
-
 
 (defmethod keep-sse-alive :before ((generator hunchentoot-sse-generator))
   "Check connection health before sending keep-alive."

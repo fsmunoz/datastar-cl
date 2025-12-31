@@ -59,6 +59,15 @@ For applications with many SSE connections, Hunchentoot is recommended (no conne
 using a polling approach. By default, Hunchentoot (and Clack+Hunchentoot) uses a push approach,
 while Clack+Woo defaults to poll.
 
+** Examples
+
+The =test/= directory has some basic examples. Additionally, the following projects use it
+
+- *[[https://codeberg.org/fsm/data-spice][Data SPICE]]*: uses Datastar-CL for a 2D simulation of the solar system and Cassini-Huygens probe; written in parallel with the SDK to showcase it and also make sure it worked.
+- *[[https://codeberg.org/fsm/horizons][Horizons JPL API explorer]]*: in the same theme, but a vastly simplified app that queries the Horizons API for solar system data.
+
+The Horizons JPL app is very simple -- one single file -- and should show the essentials. The Data SPICE application shows SSE streaming.
+
 ** Compression
 
 Support for compression was recently added, currently covering all backends but limited to =zstd=:

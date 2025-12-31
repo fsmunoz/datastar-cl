@@ -417,13 +417,13 @@ Signals conditions for error cases (empty body, etc.)."))
                               &body body)
   "Maintain a LONG-LIVED SSE connection while executing BODY in a loop.
 
-   Use this when:
+   Use this for:
    - Streaming periodic updates to clients
    - Maintaining real-time push connections
    - Need keep-alive management to prevent proxy timeouts
-   - Server needs to push data continuously (server → client direction)
+   - Server needs to push data continuously (server -> client direction)
 
-   For ONE-SHOT requests that close immediately, use MAKE-*-DATASTAR-HANDLER instead.
+   For ONE-SHOT requests that close immediately, see WITH-SSE-RESPONSE.
 
    This macro handles:
    - Connection lifecycle (on-connect, on-disconnect hooks)

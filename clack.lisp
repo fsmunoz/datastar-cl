@@ -31,7 +31,7 @@
 ;;; This buffering stream collects all compression output and only sends
 ;;; when explicitly flushed, ensuring one complete compressed frame per chunk.
 ;;;
-;;; This is only used when compression is used.
+;;; This is only used when compression is used (see COMPRESSION.org)
 
 (defclass buffering-writer-stream (trivial-gray-streams:fundamental-binary-output-stream)
   ((buffer :initform (make-array 1024 :element-type '(unsigned-byte 8)
@@ -156,15 +156,12 @@
         (error 'invalid-json-error
                :json-string ""
                :message "Empty POST request body")
-        ;; Read as binary, decode to string. This
-        ;; avoids jzon:parse reading a 0-byte
-        ;; stream in cases where, for whatever
+        ;; Read as binary, decode to string. This avoids jzon:parse
+        ;; reading a 0-byte stream in cases where, for whatever
         ;; reason, content length isn't correct.
         (let ((buffer (make-array content-length :element-type '(unsigned-byte 8))))
           (read-sequence buffer raw-body)
           (flexi-streams:octets-to-string buffer :external-format :utf-8)))))
-
-
 
 ;; Clack doesn't have a built-in way to get the query string.
 (defun extract-datastar-from-query (query-string)
@@ -173,7 +170,6 @@
     (when (and (>= (length parts) 2)
                (string= (first parts) "datastar"))
       (second parts))))
-
 
 (defun decode-query-parameter (param)
   "URL-decode a query parameter value using percent-encoding rules."
@@ -204,7 +200,7 @@
 (defmethod ensure-connection-open ((generator woo-sse-generator))
   "Proactively check Woo socket state.
 
-   Woo doesn't properly propagate socket closure as CL conditions,
+   Woo doesn't seem to propagate socket closure as CL conditions,
    so we check the socket state explicitly before I/O operations."
   (let ((socket (getf (env generator) :clack.io)))
     (when socket

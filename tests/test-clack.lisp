@@ -4,18 +4,15 @@
 
 (in-package #:datastar-cl-tests)
 
-
 (defparameter *clack-http-port* 7332 "Port in which to listen")
 (defvar *clack-handler* nil
   "Clack server handler instance")
-
 
 (defun stop-clack-server ()
   "Stop Clack server"
   (when *clack-handler*
     (clack:stop *clack-handler*)
     (setf *clack-handler* nil)))
-
 
 (defun start-clack-server (&key (port *clack-http-port*))
   "Start Clack server with routing."
