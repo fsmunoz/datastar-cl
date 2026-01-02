@@ -9,6 +9,7 @@
   :pathname "tests"
   :depends-on (#:hunchentoot
 	       #:clack
+	       #:clack-handler-hunchentoot
 	       #:woo
 	       #:drakma
 	       #:datastar-cl)
