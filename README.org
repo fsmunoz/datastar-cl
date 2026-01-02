@@ -51,13 +51,13 @@ library.
 
 ** SSE and Common Lisp webservers
 
-When using Clack with Woo, SSE connections are limited by Woo's worker thread count. Each SSE
-connection blocks one worker for its entire duration. This is a fundamental architectural
-constraint - see ~SSE-WOO-LIMITATIONS.org~ for details and practical solutions.
+When using Clack with Woo, SSE connections are limited by Woo's worker thread count when using the
+same approach as Hunchentoot: each SSE connection blocks one worker for its entire duration. This is
+a fundamental architectural constraint - see ~SSE-AND-WOO.org~ for details and practical solutions.
 
-For applications with many SSE connections, Hunchentoot is recommended (no connection limit), or
-using a polling approach. By default, Hunchentoot (and Clack+Hunchentoot) uses a push approach,
-while Clack+Woo defaults to poll.
+This was initially dealt with by pointing to using polling, essentially giving up on using Woo with
+long-running SSE. It was recently improved by adding a timer-based solution that uses the Woo event
+loop and libev.
 
 ** Examples
 
@@ -66,6 +66,7 @@ The =test/= directory has some basic examples. Additionally, the following proje
 - *[[https://codeberg.org/fsm/data-spice][Data SPICE]]*: uses Datastar-CL for a 2D simulation of the solar system and Cassini-Huygens probe; written in parallel with the SDK to showcase it and also make sure it worked.
 - *[[https://codeberg.org/fsm/horizons][Horizons JPL API explorer]]*: in the same theme, but a vastly simplified app that queries the Horizons API for solar system data.
 
+  
 The Horizons JPL app is very simple -- one single file -- and should show the essentials. The Data SPICE application shows SSE streaming.
 
 ** Compression
