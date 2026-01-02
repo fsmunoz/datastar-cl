@@ -13,6 +13,7 @@
                #:quri
                #:flexi-streams
                #:trivial-gray-streams
+               #:cffi
                #:hunchentoot
                #:clack
                #:lack-util-writer-stream
@@ -20,7 +21,8 @@
                #:gzip-stream
                #:salza2)
   :components ((:file "package")
-               (:file "datastar-cl")
                (:file "conditions")
+               (:file "datastar-cl")
                (:file "hunchentoot")
-               (:file "clack")))
+               (:file "clack")
+               (:file "woo-async")))  ; Load last - needs clack symbols

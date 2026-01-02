@@ -1,0 +1,173 @@
+* SSE with Woo: from limitations to solutions
+
+** Initial limitations
+
+When using Clack with Woo as the backend, Server-Sent Events (SSE) connections were constrained by
+Woo's worker-based, async architecture, when using the same pattern as used for Hunchentoot:
+
+- Woo uses a limited number of worker threads (configured via ~:worker-num~, typically 1-6)
+- Each SSE connection requires a persistent handler that cannot return
+- One worker thread is blocked for the entire duration of each SSE connection
+- This limits concurrent SSE connections to the number of available workers
+
+Since SSE handlers must stay alive to push data, if a handler doesn't return, it blocks a Woo
+worker: direct thread spawning fails because Woo's streams are tied to libev I/O watchers that only
+exist in the worker thread context (I tried to implement this, which would be a bad solution anyway
+since Woo is specifically written to avoid using threads, but it seemed like a good idea at the time...)
+
+** The initial approach
+
+The initial solution was to accept this and to use client-side polling: this is a documented pattern
+in Datastar (https://data-star.dev/how_tos/poll_the_backend_at_regular_intervals), used when keeping
+streams open isn't viable:
+
+> In PHP, for example, keeping long-lived SSE connections is fine for a dashboard in which users are
+> authenticated, as the number of connections are limited. For a public-facing website, however, it
+> is not recommended to open many long-lived connections, due to the architecture of most PHP
+> servers.
+
+
+The initial version of Data SPICE (https://dataspice.interlaye.red/) used this approach: when
+Clack+Woo was used, client-side polling was done with the =with-sse-response= macro (one-shot).
+
+** How it works now
+
+I wasn't convinced by these, and got several comments on this limitation. Discussing this in the
+Datastar Slack, =Anders= and =Mortalife= pointed me to the Node.js example, and by this time I was
+already investigating something that I started before: implementing a "reactor pattern" on top of
+async-friendly primitives. I tried to do this before in Data SPICE, but stumbled on the problem of
+threads since I didn't had access to Woo's event loop.
+
+And that was the main change: looking at the innards of it, there are some features available, like
+=woo.ev:*evloop*=. This was not enough, and access to the =libev= timer was also needed. After some
+work with =lev= and CFFI, the SDK now implements a Node.js-style approach using libev timers via
+~woo.ev:*evloop*~ and the ~lev~ CFFI bindings (check ~woo-async.lisp~).
+
+*** How it was implemented
+
+The approach is like this:
+
+ Handler receives request
+   1. Create SSE generator
+   2. Register connection in global registry
+   3. Ensure ev-timer is running for this evloop
+   4. Return immediately (worker freed)
+
+Then:
+
+ ev-timer fires periodically (body-interval)
+   - For each registered connection:
+     - Execute updater body (your SSE code)
+     - Send keep-alive if needed
+     - Handle disconnections via error 
+
+This returns immediately and uses the =ev-timer= to send updates, replacing the loop in =with-sse-connection=.
+
+To do this it uses:
+
+- *Connection registry*: Maps evloop pointer to a list of connections.
+- *Shared timer*: One ev-timer per evloop handles all connections.
+- *CFFI callback*: ~woo-sse-timer-cb~ processes connections periodically.
+- *Auto-detection*: ~with-sse-connection~ detects Woo and uses async mode.
+
+*** Usage
+
+No code changes required. The same API works transparently:
+
+#+begin_src lisp
+(with-sse-connection (gen (env responder)
+                      :keep-alive-interval 30
+                      :body-interval 0.1
+                      :on-connect #'register-client
+                      :on-disconnect #'unregister-client)
+  (patch-signals gen (get-current-data)))
+#+end_src
+
+When running under Woo, this automatically uses the async implementation: it replaces the Lisp-level
+loop (with =sleep=) with the timer-based approach.
+
+*** Debugging
+
+Set ~*woo-sse-debug*~ to ~T~ to log all SSE errors (including expected disconnections):
+
+#+begin_src lisp
+(setf datastar-cl:*woo-sse-debug* t)
+#+end_src
+
+I kept it separate from the other debugging flags since this one is not specifically about the SDK.
+
+** Alternative approaches
+
+These remain valid options depending on your requirements, and were part of the first versions of
+this document:
+
+*** Increase worker count
+
+#+begin_src lisp
+(clack:clackup your-app :server :woo :worker-num 20)
+#+end_src
+
+Simple but has a hard limit; in Data SPICE this is set in =config.lisp=. With the new implementation
+though, this is no longer needed in terms of 1:1 workers/clients: add more if the load requires it.
+
+*** Use Hunchentoot
+
+Hunchentoot spawns a thread per request, so SSE works naturally without limits -- or, depending on
+how you look at it, it's limited by the thread-based architecture. In any event, no changes were
+done in Hunchentoot.
+
+*** Client polling
+
+Use Datastar's polling mode with ~with-sse-response~ (single response, connection closes):
+
+#+begin_src html
+:|data-on-interval__duration.100ms| "$mode === 'pull' && @get('/stream')"
+#+end_src
+
+This is used in Data SPICE, where there's an option to set the pull/push behaviour.
+
+*** OHybrid Architecture
+
+Use Woo for static/API endpoints, Hunchentoot for SSE on different ports with a
+reverse proxy routing requests, or whatever makes sense.
+
+** Additional details
+
+This is mostly to keep track of things that didn't work :D
+
+*** Why thread spawning doesn't work
+
+This didn't work:
+
+#+begin_src lisp
+;; This fails:
+(lambda (responder)
+  (let ((gen (make-clack-sse-generator env responder)))
+    (bt:make-thread
+      (lambda ()
+        (loop (write-to-stream gen ...))))  ; ERROR
+    nil))
+#+end_src
+
+The response stream in Woo is tied to libev I/O watchers that only exist in the worker thread
+context. Writing from another thread accesses invalid memory. This led to the failure of the first
+naive approach of a dispatch-based architecture (not based on libev).
+
+*** The ev-timer solution
+
+To overcome this, instead of a Lisp loop, we use libev's =ev-timer= (similar to Node.js
+~setInterval~, I think, or at least that was what I understood at the time):
+
+#+begin_src lisp
+;; Handler registers timer, returns immediately
+(register-sse-connection conn evloop)
+(ensure-woo-sse-timer evloop interval)
+nil  ; Worker freed
+
+;; Timer callback fires periodically in event loop context
+(cffi:defcallback woo-sse-timer-cb :void ((evloop :pointer) ...)
+  (dolist (conn (get-connections-for-evloop evloop))
+    (funcall (conn-updater conn) (conn-generator conn))))
+#+end_src
+
+This keeps writes in the correct thread context while freeing workers.

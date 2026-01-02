@@ -409,6 +409,27 @@ Signals conditions for error cases (empty body, etc.)."))
           (finish-output comp-stream)
           (close comp-stream))))))
 
+;;; Woo Async SSE Support (Stubs)
+;;;
+;;; These functions provide the interface for Woo async SSE.
+;;; The actual implementations are in woo-async.lisp which is loaded later.
+;;; If woo-async.lisp is not loaded, these stubs ensure graceful fallback.
+
+(defun woo-async-available-p ()
+  "Check if Woo async SSE support is available.
+   Returns T if woo.ev:*evloop* is bound and lev package is available.
+   This stub returns NIL; the real implementation is in woo-async.lisp."
+  nil)
+
+(defun setup-woo-async-sse (generator updater-fn
+                             &key keep-alive-interval body-interval
+                                  on-connect on-disconnect)
+  "Stub for Woo async SSE setup. Real implementation in woo-async.lisp.
+   This stub should never be called at runtime (only if woo-async-available-p returns T)."
+  (declare (ignore generator updater-fn keep-alive-interval body-interval
+                   on-connect on-disconnect))
+  (error "Woo async SSE not available - woo-async.lisp not loaded"))
+
 (defmacro with-sse-connection ((generator-var request-or-env-responder
                                 &key (keep-alive-interval 30)
                                      (body-interval 0)
@@ -429,7 +450,11 @@ Signals conditions for error cases (empty body, etc.)."))
    - Connection lifecycle (on-connect, on-disconnect hooks)
    - Keep-alive management (prevents proxy/firewall timeouts)
    - Error handling and cleanup (guaranteed via unwind-protect)
-   - Backend auto-detection (Hunchentoot vs Clack)
+   - Backend auto-detection (Hunchentoot vs Clack vs Woo)
+
+   For Clack with Woo backend: Uses libev timers instead of blocking loops,
+   allowing the worker to be freed immediately. The body is executed
+   periodically via the event loop timer.
 
    Arguments:
      GENERATOR-VAR: Symbol to bind the sse-generator to (used in the body)
@@ -440,6 +465,7 @@ Signals conditions for error cases (empty body, etc.)."))
      :KEEP-ALIVE-INTERVAL - Seconds between keep-alive messages (default 30)
                            Set to NIL to disable keep-alive
      :BODY-INTERVAL - Seconds to sleep between body executions (default 0)
+                     For Woo, this becomes the timer interval (minimum 0.01s)
      :ON-CONNECT - Function called with generator when connected
      :ON-DISCONNECT - Function called with generator and error when disconnected
 
@@ -472,17 +498,75 @@ Signals conditions for error cases (empty body, etc.)."))
                             :on-connect #'log-connection
                             :on-disconnect #'log-disconnection)
        (stream-notifications gen))"
+  (if (listp request-or-env-responder)
+      ;; Clack path - generate code for both modes, select at runtime
+      (let ((env-form (first request-or-env-responder))
+            (responder-form (second request-or-env-responder))
+            (env-var (gensym "ENV"))
+            (responder-var (gensym "RESPONDER"))
+            (conn-var (gensym "CONN"))
+            (error-var (gensym "ERROR"))
+            (last-keepalive-var (gensym "LAST-KEEPALIVE")))
+        `(let ((,env-var ,env-form)
+               (,responder-var ,responder-form))
+           (if (woo-async-available-p)
+               ;; Woo async mode: use ev-timer, return immediately
+               (let ((,generator-var (make-clack-sse-generator ,env-var ,responder-var)))
+                 (let ((,conn-var
+                         (setup-woo-async-sse
+                          ,generator-var
+                          (lambda (,generator-var)
+                            ,@body)
+                          :keep-alive-interval ,keep-alive-interval
+                          :body-interval ,(if (zerop body-interval) 0.1 body-interval)
+                          :on-connect ,on-connect
+                          :on-disconnect ,on-disconnect)))
+                   (declare (ignore ,conn-var))
+                   ;; Return nil - handler exits, worker freed
+                   nil))
+               ;; Standard Clack mode: use blocking loop
+               (let ((,generator-var (make-clack-sse-generator ,env-var ,responder-var))
+                     (,last-keepalive-var (get-universal-time)))
+                 (unwind-protect
+                      (progn
+                        ,@(when on-connect
+                            `((funcall ,on-connect ,generator-var)))
+                        (handler-case
+                            (loop
+                              ,@body
+                              (when (> ,body-interval 0)
+                                (sleep ,body-interval))
+                              ,@(when keep-alive-interval
+                                  `((when (>= (- (get-universal-time) ,last-keepalive-var)
+                                              ,keep-alive-interval)
+                                      (keep-sse-alive ,generator-var)
+                                      (setf ,last-keepalive-var (get-universal-time))))))
+                          (end-of-file (,error-var)
+                            ,@(when on-disconnect
+                                `((funcall ,on-disconnect ,generator-var ,error-var))))
+                          (stream-error (,error-var)
+                            ,@(when on-disconnect
+                                `((funcall ,on-disconnect ,generator-var ,error-var))))
+                          (error (,error-var)
+                            ,@(when on-disconnect
+                                `((funcall ,on-disconnect ,generator-var ,error-var)))))
+                        nil)
+                   (close-sse-generator ,generator-var))))))
+      ;; Hunchentoot path - always use blocking loop
+      (expand-standard-sse-connection generator-var
+                                      `(make-hunchentoot-sse-generator ,request-or-env-responder)
+                                      body keep-alive-interval body-interval
+                                      on-connect on-disconnect)))
+
+(defun expand-standard-sse-connection (generator-var generator-form
+                                        body keep-alive-interval body-interval
+                                        on-connect on-disconnect)
+  "Expand the standard blocking SSE connection loop.
+   Used for Hunchentoot and non-Woo Clack backends."
   (let ((error-var (gensym "ERROR"))
         (last-keepalive-var (gensym "LAST-KEEPALIVE")))
-    `(let ((,generator-var ,(if (listp request-or-env-responder)
-                                `(make-clack-sse-generator
-                                  ,(first request-or-env-responder)
-                                  ,(second request-or-env-responder))
-                                `(make-hunchentoot-sse-generator
-                                  ,request-or-env-responder)))
+    `(let ((,generator-var ,generator-form)
            (,last-keepalive-var (get-universal-time)))
-
-
        (unwind-protect
             (progn
               ;; Connection established hook

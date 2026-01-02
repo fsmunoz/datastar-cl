@@ -18,6 +18,7 @@
    :*default-auto-remove*
    :*default-compression-priority*
    :*catch-errors-p*
+   :*woo-sse-debug*
 
    ;; Backend constructors
    :make-hunchentoot-sse-generator
