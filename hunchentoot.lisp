@@ -130,6 +130,30 @@
           (force-output base-stream)
           (force-output stream)))))
 
+(defmethod close-sse-generator ((generator hunchentoot-sse-generator))
+  "Close SSE generator for Hunchentoot.
+   Closes the compression stream to emit final frame, but only flushes the socket
+   since Hunchentoot manages the socket lifecycle itself."
+  (let ((comp-stream (when (slot-boundp generator 'compressed-stream)
+                       (compressed-stream generator)))
+        (stream (response generator))
+        (base-stream (when (slot-boundp generator 'raw-stream)
+                       (raw-stream generator))))
+    ;; 1. Flush the flexi-stream (UTF-8 layer)
+    (when (and stream (open-stream-p stream))
+      (ignore-errors (finish-output stream)))
+
+    ;; 2. CLOSE the compression stream to emit final zstd frame with end marker
+    ;;    This is critical - just flushing doesn't emit the end-of-stream marker
+    (when (and comp-stream (open-stream-p comp-stream))
+      (ignore-errors
+        (finish-output comp-stream)
+        (close comp-stream)))
+
+    ;; 3. Flush the raw socket stream (don't close - Hunchentoot manages it)
+    (when (and base-stream (open-stream-p base-stream))
+      (ignore-errors (force-output base-stream)))))
+
 ;; Constructor
 
 (defun make-hunchentoot-sse-generator (request &key disable-compression

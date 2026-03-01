@@ -90,6 +90,27 @@
     (alexandria:doplist (key val plist)
       (format out " ~a=\"~a\"" key val))))
 
+;;; Dot‑notation utilities
+(defun set-signal-in (hash-table path value &key (separator #\.))
+  "Set VALUE in nested HASH‑TABLE following dot‑notated PATH."
+  (let ((parts (split-sequence:split-sequence separator path)))
+    (labels ((rec (ht parts)
+               (if (cdr parts)
+                   (let ((key (car parts)))
+                     (unless (gethash key ht)
+                       (setf (gethash key ht) (make-hash-table :test 'equal)))
+                     (rec (gethash key ht) (cdr parts)))
+                   (setf (gethash (car parts) ht) value))))
+      (rec hash-table parts))))
+
+(defun plist-to-nested-hash-table (plist &key (separator #\.))
+  "Convert a plist (key1 val1 key2 val2 …) to a nested hash‑table.
+   Keys containing SEPARATOR are nested; others remain top‑level."
+  (let ((result (make-hash-table :test 'equal)))
+    (loop for (key val) on plist by #'cddr
+          do (set-signal-in result key val :separator separator))
+    result))
+
 (defun build-script-tag (script &key attributes auto-remove)
   "Build HTML <script> tag string with optional ATTRIBUTES and AUTO-REMOVE behavior."
   (let ((attr-parts (remove nil
@@ -322,6 +343,16 @@
     (send-event generator :datastar-patch-signals data-lines
                 :event-id event-id
                 :retry-duration retry-duration)))
+
+(defmethod patch-signals ((generator sse-generator) (signals list)
+                          &key only-if-missing event-id retry-duration)
+  "Patch signals from a plist (key1 val1 key2 val2 …).
+   Dot‑notation keys are automatically nested."
+  (patch-signals generator
+                 (plist-to-nested-hash-table signals)
+                 :only-if-missing only-if-missing
+                 :event-id event-id
+                 :retry-duration retry-duration))
 
 (defmethod execute-script ((generator sse-generator) (script string)
                            &key (auto-remove *default-auto-remove*)
