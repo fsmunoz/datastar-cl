@@ -65,6 +65,8 @@ Each binding is ~(var "key")~ or ~(var "key" default)~.
 
 ** Prerequisite
 
-The Clack arm requires the Snooze ~make-clack-app~ function-payload patch from the
-~clack-stream~ branch (or the upstream PR once merged). Without it, Clack squashes the
-responder closure into a plain 3-tuple and the stream never opens.
+The Clack arm requires the Snooze ~make-clack-app~ function-payload patch from the ~clack-stream~
+branch (or the upstream PR once merged). Without it, Clack squashes the responder closure into a
+plain 3-tuple and the stream never opens. This note will be removed when [[https://github.com/joaotavora/snooze/pull/43][the PR is merged]] or a
+better replacement added that makes it possible. Until them, you can [[https://github.com/fsmunoz/snooze/tree/clack-stream][clone it from the clack-stream
+branch of the fork]].

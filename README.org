@@ -31,13 +31,23 @@ in Common Lisp. Internally it is structured as two layers: ~lc-sse~, a generic S
 engine with streaming compression and backend adapters, and ~datastar-cl~, the Datastar protocol SDK
 built on top. Both are usable independently.
 
+Check the [[https://lambda-combine.net/hyper-guide][Hypermedia with Common Lisp and Datastar interactive guide]] for a live tour of the SDK, from core concepts of using ~with-sse~ to CQRS and fat morphing.
+
+Some live demos:
+
+- [[https://rep-detect.lambda-combine.net/][Replicate Detector]]: find and retire replicants. CQRS, data persistence with BKNR datastore, fat morphing of the ~svg~ namespace.
+- [[https://dataspice.lambda-combine.net/][Data SPICE]]: follow the Cassini-Huygens mission with data from the NASA SPICE toolkit. Web component, constant stream, multiple endpoints.
+- [[https://horizons.lambda-combine.net/][Horizons]]: a simpler version of the above, focus on JPL data and Nasa DSN streaming.
+
+Replicant Detector and Horizons are included in ~examples/~, as well as many single file demos in ~examples/one-file~.  
+
 ** How to use it
 
 Clone the repository *recursively* (lc-sse is a git submodule) somewhere ASDF can find it
 (~~/src/lisp~ is commonly already configured), and use Quicklisp to load it:
 
 #+begin_src shell
-git clone --recursive git@github.com:fsmunoz/datastar-cl.git
+git clone --recursive https://github.com/fsmunoz/datastar-cl.git
 # or, after a plain clone:
 git submodule update --init --recursive
 #+end_src
@@ -46,18 +56,21 @@ git submodule update --init --recursive
 (ql:quickload :datastar-cl)              ; Hunchentoot + Clack backends
 (ql:quickload :datastar-cl/hunchentoot)  ; Hunchentoot only
 (ql:quickload :datastar-cl/clack)        ; Clack only
-(ql:quickload :datastar-cl/brotli)       ; optional brotli compression support
 (ql:quickload :datastar-cl/snooze)       ; optional Snooze routing integration
 (ql:quickload :datastar-cl/registry)     ; optional connection registry for CQRS/pub-sub
+;; NOT YET IN QUICKLISP!
+(ql:quickload :datastar-cl/brotli)       ; optional brotli compression support 
 #+end_src
 
 The umbrella ~datastar-cl~ loads both Hunchentoot and Clack backends.
+
+~cl-brotli~ is not yet on Quicklisp either; while that's the case get it from [[https://codeberg.org/fsm/cl-brotli][the repository]].
 
 The sub-systems =datastar-cl/brotli=, =datastar-cl/woo=, and =datastar-cl/registry= are
 compatibility aliases that load the corresponding =lc-sse/= systems. They are retained for
 backward compatibility and will be kept at least until =lc-sse= is available in the Quicklisp
 distribution. New code should prefer the canonical names (=lc-sse/brotli=, =lc-sse/registry=,
-=lc-sse.registry=, etc.) for anything that is generic SSE functionality.
+=lc-sse.registry=, etc.) for anything that is generic SSE functionality, but all the examples use the datastar-cl aliases.
 
 ** Including Datastar in your HTML
 
