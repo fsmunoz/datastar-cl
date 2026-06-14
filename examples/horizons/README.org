@@ -1,0 +1,19 @@
+#+TITLE: Horizons - JPL Solar System Datastar Demo
+#+AUTHOR: Frederico Muñoz / ΛↃ lambda combine
+
+
+Solar system visualisation using a JavaScript web component, queries the JPL
+Horizons API for information on the selected planet. Background stream from
+NASA's Deep Space Network (DSN).
+
+* Goals
+
+This demo showcases the following (on top of more trivial signal and patching):
+
+- Usage of ~with-sse~: clicking planets uses a one-shot body that returns after
+  sending; the DSN stream uses a loop body that keeps the connection open.
+- How to use Snooze for routing: Snooze is a CLOS-based routing library that can
+  sit on top of Hunchentoot or Clack.
+- Examples of the SDK helpers, like ~ds-expr~, used in conjunction with
+  Parenscript.
+- Communication between Datastar and a web component.  

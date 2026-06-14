@@ -1,0 +1,3 @@
+[submodule "lc-sse"]
+	path = lc-sse
+	url = git@codeberg.org:fsm/lc-sse.git

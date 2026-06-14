@@ -1,0 +1,59 @@
+name: SDK Test
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # Run at the first day of each month to detect external breakage
+    - cron: '0 0 1 * *'
+
+jobs:
+  test:
+    name: Test datastar-cl SDK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Roswell
+        uses: 40ants/setup-lisp@v2
+        with:
+          asdf-system: datastar-cl
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y golang-go libzstd-dev libssl-dev
+
+      - name: Run lc-sse standalone tests (independence proof)
+        run: |
+          ros -s lc-sse-tests \
+            -e "(when (find-package :datastar-cl) (format t \"FAIL: datastar-cl was loaded~%\") (uiop:quit 1))" \
+            -e "(unless (lc-sse/tests:run-all-tests) (uiop:quit 1))" \
+            -e "(uiop:quit 0)"
+
+      - name: Run unit tests
+        run: |
+          ros -s datastar-cl-tests/unit \
+            -e "(unless (datastar-cl/tests/unit:run-all-tests) (uiop:quit 1))" \
+            -e "(uiop:quit 0)"
+
+      - name: Run integration tests
+        run: |
+          ros -s datastar-cl-tests/integration \
+            -e "(unless (datastar-cl/tests/integration:run-all-tests) (uiop:quit 1))" \
+            -e "(uiop:quit 0)"
+
+      - name: Run lc-sse submodule integration tests (compose check)
+        run: |
+          if [ -f lc-sse/tests/integration/package.lisp ]; then
+            ros -s lc-sse-tests/integration \
+              -e "(unless (lc-sse/tests/integration:run-all-tests) (uiop:quit 1))" \
+              -e "(uiop:quit 0)"
+          else
+            echo "SKIP: lc-sse/tests/integration not in submodule (pending gitlink bump to post-relayout commit)"
+          fi

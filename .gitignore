@@ -1,0 +1,14 @@
+*~
+.backup
+local-docs/
+\#*\#
+.#*
+*.fasl
+.*
+!.github
+examples/rep-detect-app
+deployment/
+docs/*.texi
+docs/*.txt
+docs/*.html
+docs/*.xml

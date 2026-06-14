@@ -1,0 +1,46 @@
+#+TITLE: Compression Support in datastar-cl
+#+AUTHOR: Frederico Muñoz / ΛↃ lambda combine
+
+The compression machinery -- stream architecture, flush/close invariants, algorithm selection,
+per-request configuration -- lives in =lc-sse= and is fully documented in the submodule:
+
+See =lc-sse/COMPRESSION.org= (canonical) or
+[[https://codeberg.org/fsm/lc-sse/src/branch/main/COMPRESSION.org][COMPRESSION.org on Codeberg]].
+
+All configuration symbols (=*default-compression-priority*=, =*default-compression-parameters*=,
+=make-hunchentoot-sse-generator= keywords) are re-exported from the =datastar-cl= package, so
+snippets in that document work verbatim with the =datastar-cl:= prefix as well as =lc-sse:=.
+
+* Datastar-specific notes
+
+** Tiny demo payloads -- disable compression
+
+For demo or one-shot endpoints that push only a handful of bytes, compression adds framing overhead
+without benefit. The negotiated algorithm still produces a valid stream, but the output is larger
+than the uncompressed payload. Disable it per-generator:
+
+#+begin_src lisp
+(datastar-cl:with-sse (gen hunchentoot:*request*
+                       :disable-compression t)
+  (datastar-cl:patch-signals gen my-signals))
+#+end_src
+
+Or globally for a short-lived demo server:
+
+#+begin_src lisp
+(setf datastar-cl:*default-compression-priority* '())
+#+end_src
+
+This advice applies wherever the payload is small and fixed: =patch-signals= with a tiny JSON
+object, a one-shot =execute-script=, etc. Long-lived streaming endpoints benefit from compression
+even at low data rates because the compressor amortises its per-frame overhead over many events.
+
+** Brotli in the Datastar community
+
+Brotli is popular in the Datastar community for SSE responses. See Anders Murphy's
+[[https://andersmurphy.com/2025/04/15/why-you-should-use-brotli-sse.html][Why you should consider using brotli compression with SSE]] for motivation. Load
+=datastar-cl/brotli= to enable it (this delegates directly to =lc-sse/brotli=):
+
+#+begin_src lisp
+(asdf:load-system :datastar-cl/brotli)
+#+end_src

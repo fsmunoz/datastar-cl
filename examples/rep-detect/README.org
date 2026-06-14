@@ -1,0 +1,136 @@
+#+TITLE: REP-DETECT -- Geolocated SVG Radar with BKNR Prevalence
+#+AUTHOR: Frederico Muñoz
+#+LANGUAGE: en
+
+* Overview
+
+REP-DETECT is a replicant registry demo extended with a geolocated SVG radar. Every Spawn, Sight, or
+Retire command geolocates the operator's IP via [[https://dev.maxmind.com/geoip/geolite2-free-geolocation-data/][MaxMind GeoLite2-City]] and pings the location on a
+world map rendered as SVG below the registry table.
+
+The demo exercises two SDK features together:
+
+- *SVG-namespace patching*: ~patch-elements~ with ~:namespace :svg~ so that Datastar morphs children
+  in the SVG XML namespace. Without this flag, morphed elements land in the HTML namespace and the
+  browser ignores them.
+
+- *CQRS push pattern*: the three command handlers mutate the BKNR prevalence store, then broadcast a
+  fresh registry fragment and a fresh radar SVG to every connected subscriber in one round-trip.
+  
+- *BKNR datastore prevalence*: used here as an alternative to event-sourcing, events are kept in a
+  transaction log and replayed at restart.
+  
+The expand-and-fade animation on each contact is driven by a CSS ~@keyframes~ rule (same model as
+the glitch demo): the server triggers by pushing a new element with a fresh ~id~; CSS handles the
+visual timing.
+
+* Requirements
+
+- *SBCL* with Quicklisp; all Lisp dependencies are loaded automatically.
+
+- *GeoLite2-City.mmdb*: a free MaxMind account GeoLite2-City database. Place it at the path in
+  ~*geo-db-path*~ (default: ~/tmp/GeoLite2-City_20260602/GeoLite2-City.mmdb~). If the file is
+  absent, startup prints a warning and the radar stays empty -- the registry continues to work
+  normally.
+
+- *Real visitor IP*: the demo reads ~CF-Connecting-IP~, ~X-Forwarded-For~, then the socket address,
+  in that order. When reached via ~localhost~, no public IP is available; the demo falls back to the
+  curated themed pool (one IP per seeded replicant) so the map still shows contacts.
+
+* Running
+
+#+BEGIN_SRC sh
+make run          # starts on http://localhost:8990
+#+END_SRC
+
+Or from the REPL:
+
+#+BEGIN_SRC lisp
+(ql:quickload :rep-detect-demo)
+(datastar-cl/rep-detect-demo:start-server)
+#+END_SRC
+
+* Building a standalone executable
+
+#+BEGIN_SRC sh
+make build        # produces ./rep-detect
+./rep-detect
+#+END_SRC
+
+
+* Map
+
+The coastline data (~world-110m.lisp~) was generated from Natural Earth ~ne_110m_land.geojson~
+(naturalearthdata.com).
+
+* Live simulation
+
+The server starts a background simulator thread automatically. Every 1.5--4 seconds it performs a
+random action (weighted 40 % sight / 35 % spawn / 25 % retire) and broadcasts the result to all
+connected clients. The radar shows contacts world-wide, and the registry updates without any human
+interaction.
+
+- *Sighting a retired unit reactivates it* (it wasn't dead after all). This keeps the population
+  dynamic: the simulator will revive units it retired, maintaining a mix of active and retired
+  records.
+- The population is capped at ~*sim-max-pop*~ (default 100) so the store doesn't grow eternally.
+- Simulated contacts are geolocated from *random public IPs worldwide* (queried against the local
+  GeoLite2-City DB) so blips appear across all continents, not the fixed 8-city fallback pool.
+- The registry table has a fixed-height scroll area with a sticky header so the column labels stay
+  visible as the list grows.
+
+To control the simulator from the REPL:
+
+#+BEGIN_SRC lisp
+(datastar-cl/rep-detect-demo:stop-simulator)        ; pause
+(datastar-cl/rep-detect-demo:start-simulator)       ; resume
+(datastar-cl/rep-detect-demo:start-server :simulate nil)  ; no auto-sim
+#+END_SRC
+
+* Demo flow
+
+1. Open the tunnel URL (or ~http://localhost:8990~ for localhost fallback).
+2. Watch: blips ping automatically on the radar; the registry stats change.
+3. Click *SIGHT* on a replicant -- a blip pings at your city. Sighting a retired unit revives it to
+   AT-LARGE.
+4. Click *SPAWN* to register a new unit; fill designation, model, role, and incept date.
+5. Click *RETIRE* on an at-large unit; the ~*command-delay*~ seconds are the central command
+   round-trip. Rachael (~N7FAB00001~) always fails per spec.
+6. Open a second browser tab: it receives the current state on connect and all subsequent broadcasts
+   in real time.
+
+* Some notes on the prevalence model and event-sourcing
+
+The prevalence model (Prevayler, Klaus Wüstefeld, 2001) keeps the entire domain in RAM, here (using
+BKNR datastore, inspired by Prevayler and similar libraries) as live CLOS objects, logs every
+mutation (a "transaction") to disk atomically, and periodically saves a full snapshot. On restart,
+load the latest snapshot, then replay the transaction log to reach the current state. The same
+overall recovery mechanism as event sourcing, but the *emphasis* is different:
+
+ | Aspect          | Event Sourcing (cf. #11)        | Prevalence (this file)      |
+ |-----------------+---------------------------------+-----------------------------|
+ | Source of truth | the event log                   | live CLOS objects in RAM    |
+ | Current state   | derived by folding events       | read directly off object    |
+ | Log role        | primary store                   | durability / replay         |
+ | Reads           | "fold" or build a projection    | indexed object query        |
+ | Writes          | append a domain event           | mutate object in logged txn |
+ | Restart         | replay log from zero            | snapshot + log replay       |
+ | Audit "why"     | strong, events are domain facts | weaker, logs commands       |
+ | Time travel     | replay to any prefix            | restore-store :until <ts>   |
+ | Lineage         | DDD/CQRS, emerged ~2000s        | Prevayler, 2001             |
+ |-----------------+---------------------------------+-----------------------------|
+
+Prevalence already contained log + replay + snapshot before event sourcing made the log the primary
+model. ES's key move seems to be philosophical, to elevate the log from a recovery artefact to the
+single source of truth, at the cost of needing a "projection".
+
+*Prevalence*:
+  - Objects are long-lived, mutable, and their current state is what matters.
+  - You need indexed reads across many objects (no fold required).
+  - You want persistence without a separate DB process.
+  - The domain is well-understood and schema evolution is manageable.
+*Event sourcing*:
+  - The history itself is a first-class business artefact (audit, compliance).
+  - Multiple independent read models need to project the same event stream.
+  - Temporal queries ("what was the state on date X?") are frequent.
+

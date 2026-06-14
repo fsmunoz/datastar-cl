@@ -1,0 +1,35 @@
+#+TITLE: The Glitch: Datastar CQRS demo (simpler version)
+#+AUTHOR: Frederico Muñoz / ΛↃ lambda combine
+
+In this demo, there are two buttons: one glitches your screen, the other glitches the screen of
+everyone with the page opened.
+
+This is a variation of the ~glitch~ demo, replacing Calispel with the SDK registry -- a helper that
+can fit typical use-cases and is opt-in.
+
+* Goals
+
+This demo showcases the following (on top of more trivial signal and patching):
+
+- The CQRS pattern, which is mentioned in described in the Datastar
+  documentation (and elsewhere)
+- Using Hunchentoot as the backend.
+- Spinneret and LASS use for Common Lisp HTML and CSS.
+- Using the SDK connection registry
+
+* Implementation notes
+
+The SDK makes implementing CQRS _possible_, but there needs to be application-side plumbing for it
+to work. In this demo, we use ~#:datastar-cl/registry~ to keep a mapping of connections and
+sessions: users clicking the Glitch buttons send ~POST~ commands to the backend, which are added to
+one of two registries:
+
+1. A user-specific registry (or tab specific, based on a random UID)
+2. A shared, global registry
+
+Using ~with-sse~, each user (again, meaning an independent view like a window or tab) has a SSE
+stream open, that adds the connection to the registry when opened; when a command is received, we
+can check both registry to either broadcasts it to every connection, or unicasts it to the specific
+one that sent the ~POST~ command: in both cases the SSE connection is kept open, waiting for
+updates.
+

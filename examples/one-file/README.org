@@ -1,0 +1,27 @@
+* Datastar-CL: one-file examples
+
+This are one file, self-contained examples that try to avoid doing too much, and progressively add
+things, from simple to complex, each building on the previous:
+
+|  # | File                 | What it shows                                                                                                   |
+|----+----------------------+-----------------------------------------------------------------------------------------------------------------|
+|  1 | demo-sse.lisp        | SSE stream + patch-elements (clock, receive-only)                                                               |
+|  2 | demo-signals.lisp    | patch-signals for reactive state (time + ticks)                                                                 |
+|  3 | demo-script.lisp     | execute-script / console-log / redirect                                                                         |
+|  4 | demo.lisp            | Combined: helpers read-signal/with-signals/init-signals, user interaction                                       |
+|  5 | demo-clack.lisp      | Same concepts as demo.lisp with the Clack backend                                                               |
+|  6 | demo-remove.lisp     | remove-element + patch-elements append mode                                                                     |
+|  7 | fat-morph.lisp       | Fat morph: full-region replacement, data-ignore-morph                                                           |
+|  8 | fat-cqrs.lisp        | CQRS: shared state via POST, subscription/lock/broadcast                                                        |
+|  9 | fat-cqrs-snooze.lisp | CQRS, Snooze routing, tcp-nodelay acceptor (the most complete example)                                          |
+| 10 | demo-reactivity.lisp | data-computed, data-show, data-attr + data-indicator (client reactivity, loading)                               |
+| 11 | event-sourcing.lisp  | Event sourcing: append-only log, state-as-projection (REDUCE), commands, time travel                            |
+| 12 | prevalence.lisp      | Prevalence model (BKNR datastore): persistent CLOS objects, transactions, indexed reads, on-disk durability     |
+
+
+Examples 1-10 are <100 LOC. Examples 11 and 12 exceed that; they carry more explanatory comments
+and demonstrate architectural patterns rather than individual Datastar features.
+
+For a more elaborate prevalence-based application see =examples/rep-detect/=.
+
+Run with ~sbcl --load <file>.lisp~ (or equivalent), then open http://localhost:8989 .

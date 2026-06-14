@@ -1,0 +1,33 @@
+#+TITLE: The Glitch: Datastar CQRS demo
+#+AUTHOR: Frederico Muñoz / ΛↃ lambda combine
+
+
+In this demo, there are two buttons: one glitches your screen, the
+other glitches the screen of everyone with the page opened.
+
+* Goals
+
+This demo showcases the following (on top of more trivial signal and patching):
+
+- The CQRS pattern, which is mentioned in described in the Datastar
+  documentation (and elsewhere)
+- Using Hunchentoot as the backend.
+- Spinneret and LASS use for Common Lisp HTML and CSS.
+- Using Calispel for message-passing channels alongside the Common Lisp SDK.
+
+* Implementation notes
+
+The SDK makes implementing CQRS _possible_, but there needs to be
+application-side plumbing for it to work. In this demo, we use [[https://github.com/hawkir/calispel][Calispel]] for
+thread-safe message-passing channels: users clicking the Glitch buttons send
+~POST~ commands to the backend, which are added to one of two channels:
+
+1. A user-specific channel (or tab specific, based on a random UID)
+2. A shared, global channel
+
+Using ~with-sse~, each user (again, meaning an independent view like a window or
+tab) has a SSE stream open, that subscribes to the channels when opened; when a
+command is received, the Calispel infrastructure either broadcasts it to every
+connection, or unicasts it to the specific one that sent the ~POST~ command: in
+both cases the SSE connection is kept open, waiting for updates.
+

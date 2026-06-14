@@ -1,0 +1,30 @@
+* datastar-cl examples
+
+We have include many examples, with different levels of complexity and different approaches in using
+the SDK (some use snooze helpers, others do not, etc.):
+
+** The Glitch (~glitch~ and ~glitch-simple~)
+
+Using CQRS to glitch the screen of everyone connected. Has a message-passing version (using
+[[https://github.com/hawkir/calispel][Calispel]]), and a "simple" version that uses the SDK registry.
+
+** Horizons (~horizons~)
+
+Solar system visualisation using a JavaScript web component, queries the JPL Horizons API for
+information on the selected planet. Background stream from NASA's Deep Space Network (DSN).
+
+Uses Snooze.
+
+** Replicant Detector (~rep-detect~)
+
+A replicant registry backed by BKNR prevalence, extended with a geolocated SVG radar. Each Spawn /
+Sight / Retire command geolocates the operator's IP via MaxMind GeoLite2 and pings the location on a
+world-map SVG rendered in the browser. Exercises SVG-namespace patching (~patch-elements~ with
+~:namespace :svg~) and the CQRS push pattern.
+
+** ~one-file~
+
+Self-contained single-file examples designed to be read progressively. Each file adds one concept to
+the previous: SSE + patch-elements, patch-signals, execute-script, user interaction, Clack backend,
+remove-element, fat morph, CQRS with shared state, event-sourcing, and more. A good starting point
+for understanding how the SDK pieces fit together.

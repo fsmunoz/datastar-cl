@@ -1,0 +1,394 @@
+#+TITLE: datastar-cl
+#+AUTHOR: Frederico Muñoz / ΛↃ lambda combine
+
+* Datastar Common Lisp SDK
+
+[[https://github.com/fsmunoz/datastar-cl/actions/workflows/sdk-test.yml][https://github.com/fsmunoz/datastar-cl/actions/workflows/sdk-test.yml/badge.svg]]
+
+#+begin_src text
+================================================================
+
+       |
+      / \            DATASTAR HYPERMEDIA FRAMEWORK
+     /___\
+    |  D  |
+    | C*L |                '(DATASTAR-CL)
+    |     |
+   /|  |  |\
+  | |_ |__| |              COMMON LISP SDK
+  |/  /.\  \|
+
+================================================================
+#+end_src
+
+** What is it
+
+This is a Common Lisp implementation of the Datastar SDK, following the Datastar Architecture
+Decision Record (ADR), making the necessary adjustments for Common Lisp.
+
+Focus has been on implementing the core SDK functionality and providing an idiomatic way to use it
+in Common Lisp. Internally it is structured as two layers: ~lc-sse~, a generic Server-Sent Events
+engine with streaming compression and backend adapters, and ~datastar-cl~, the Datastar protocol SDK
+built on top. Both are usable independently.
+
+** How to use it
+
+Clone the repository *recursively* (lc-sse is a git submodule) somewhere ASDF can find it
+(~~/src/lisp~ is commonly already configured), and use Quicklisp to load it:
+
+#+begin_src shell
+git clone --recursive git@github.com:fsmunoz/datastar-cl.git
+# or, after a plain clone:
+git submodule update --init --recursive
+#+end_src
+
+#+begin_src lisp
+(ql:quickload :datastar-cl)              ; Hunchentoot + Clack backends
+(ql:quickload :datastar-cl/hunchentoot)  ; Hunchentoot only
+(ql:quickload :datastar-cl/clack)        ; Clack only
+(ql:quickload :datastar-cl/brotli)       ; optional brotli compression support
+(ql:quickload :datastar-cl/snooze)       ; optional Snooze routing integration
+(ql:quickload :datastar-cl/registry)     ; optional connection registry for CQRS/pub-sub
+#+end_src
+
+The umbrella ~datastar-cl~ loads both Hunchentoot and Clack backends.
+
+The sub-systems =datastar-cl/brotli=, =datastar-cl/woo=, and =datastar-cl/registry= are
+compatibility aliases that load the corresponding =lc-sse/= systems. They are retained for
+backward compatibility and will be kept at least until =lc-sse= is available in the Quicklisp
+distribution. New code should prefer the canonical names (=lc-sse/brotli=, =lc-sse/registry=,
+=lc-sse.registry=, etc.) for anything that is generic SSE functionality.
+
+** Including Datastar in your HTML
+
+Use ~datastar-url~ to get the script src rather than hard-coding the CDN string:
+
+#+begin_src lisp
+;; Spinneret (default: jsDelivr CDN, SDK-pinned version)
+(:script :type "module" :src (datastar-cl:datastar-url))
+
+;; Different version for one call
+(:script :type "module" :src (datastar-cl:datastar-url :version "1.0.0-RC.8"))
+
+;; Local self-hosted copy (set once, all calls pick it up)
+(setf datastar-cl:*datastar-source* "/static/datastar.js")
+
+;; Restore CDN default
+(setf datastar-cl:*datastar-source* nil)
+#+end_src
+
+The three underlying parameters (~*datastar-version*~, ~*datastar-cdn-base*~, ~*datastar-source*~)
+are all exported and can be overridden per-application or within a ~let~ binding for request-scoped
+overrides.
+
+** Approach
+
+The SDK uses CLOS and is based on a ~sse-generator~ base class with two subclasses:
+
+1. ~hunchentoot-sse-generator~ (in ~lc-sse/hunchentoot~): used with the Hunchentoot web server.
+2. ~clack-sse-generator~ (in ~lc-sse/clack~): used with Clack.
+
+The single public macro is ~with-sse~, which selects the right backend at macroexpansion time based
+on the shape of its request argument: a plain symbol maps to ~make-hunchentoot-sse-generator~; a
+~(env responder)~ list maps to ~make-clack-sse-generator~ (no runtime dispatch or feature flags are
+involved).
+
+The SSE machinery (~sse-generator~, ~send-event~, ~with-sse~, streaming compression, keep-alive,
+both backends, the broadcast registry) lives in the ~lc-sse~ sub-library (~lc-sse.asd~).
+~datastar-cl~ depends on it and adds the Datastar protocol on top. All ~lc-sse~ symbols are
+re-exported from ~datastar-cl~, so ~datastar-cl:with-sse~ and ~lc-sse:with-sse~ are the same
+symbol -- existing code needs no changes.
+
+** lc-sse -- generic SSE layer
+
+The SSE engine is available independently as ~lc-sse~:
+
+#+begin_src lisp
+(ql:quickload :lc-sse)              ; Hunchentoot + Clack SSE backends
+(ql:quickload :lc-sse/hunchentoot)
+(ql:quickload :lc-sse/clack)
+(ql:quickload :lc-sse/registry)     ; broadcast registry
+(ql:quickload :lc-sse/brotli)       ; optional brotli compression
+#+end_src
+
+~lc-sse~ has no dependency on the Datastar protocol. ~send-event~ takes a plain string
+event name; ~with-sse~, ~keep-sse-alive~, and the registry API are identical.
+~datastar-cl~ re-exports all ~lc-sse~ symbols, so ~lc-sse:with-sse~ and
+~datastar-cl:with-sse~ are the same symbol.
+
+** Examples
+
+There are many examples in =examples/=, including one-file demos that focus on specific features:
+check =examples/README.org= and examples/one-file/
+
+Additionally, these examples have their own repositories and live versions:
+- *[[https://codeberg.org/fsm/data-spice][Data SPICE]]*: uses Datastar-CL for a 2D simulation of the solar system and Cassini-Huygens probe;
+  written in parallel with the SDK to showcase it and also make sure it worked.
+- *[[https://codeberg.org/fsm/horizons][Horizons JPL API explorer]]*: in the same theme, but a vastly simplified app that queries the
+  Horizons API for solar system data (also included in ~examples/horizons~)
+- ~examples/one-file/prevalence.lisp~ -- BKNR datastore prevalence model: persistent CLOS objects,
+  transactions, CQRS push, on-disk durability. Read alongside the event-sourcing example for a
+  comparison of the two persistence patterns.
+
+
+** Snooze integration
+
+Load ~datastar-cl/snooze~ for a backend-agnostic ~with-sse~ and ~read-signals~ inside
+~snooze:defroute~ bodies. See =SNOOZE.org= for the full API and examples.
+
+** Keep-alive heartbeats
+
+Reverse proxies close idle SSE connections after a timeout.  ~with-sse~ has a
+~:keep-alive~ keyword whose behaviour depends on whether the body is empty.
+
+*Empty body* (pure-push CQRS -- broadcaster does all writing): ~:keep-alive~
+drives the connection lifetime.  The macro injects a heartbeat loop on the request thread.  When the socket dies, the next heartbeat write fails
+with ~stream-error~, unwinding the body, firing ~:on-disconnect~, and closing
+the stream.  No extra threads.
+
+#+begin_src lisp
+;; T uses *default-keep-alive-interval* (30 s; safe floor for most proxies)
+(with-sse (gen hunchentoot:*request*
+           :keep-alive    t
+           :on-connect    (lambda (g) (register g))
+           :on-disconnect (lambda (g) (unregister g))))  ; empty body
+
+;; Explicit interval in seconds
+(with-sse (gen hunchentoot:*request*
+           :keep-alive    15
+           :on-connect    (lambda (g) (register g))
+           :on-disconnect (lambda (g) (unregister g))))  ; empty body
+#+end_src
+
+*Non-empty body* (body writes its own events): ~:keep-alive~ is inert; the body
+owns heartbeating via a manual loop.  Each ~keep-sse-alive~ call both heartbeats
+the proxy and probes for disconnect -- on a dead socket it throws ~stream-error~:
+
+#+begin_src lisp
+(with-sse (gen hunchentoot:*request*
+           :on-connect    (lambda (g) (register g))
+           :on-disconnect (lambda (g) (unregister g)))
+  (patch-elements gen (initial-render))
+  (loop
+    (sleep datastar-cl:*default-keep-alive-interval*)
+    (keep-sse-alive gen)))
+#+end_src
+
+Read =KEEP-ALIVE.org= for the full design rationale and a comparison of both
+patterns.
+
+** Reading signals
+
+Use ~read-signals~ to parse client-sent JSON into a hash-table, then ~gethash~
+for individual values.  ~with-signals~ is a destructuring macro that reads the
+request once and binds multiple values in one form:
+
+#+begin_src lisp
+;; Single value -- read-signal (convenience wrapper around read-signals)
+(datastar-cl:read-signal hunchentoot:*request* "sid")
+
+;; Multiple values -- with-signals reads the request exactly once
+(datastar-cl:with-signals ((name "name") (sid "sid" (make-uuid)))
+    hunchentoot:*request*
+  (register-subscriber sid name))
+#+end_src
+
+Each binding is ~(var "key")~ or ~(var "key" default)~.  DEFAULT is returned
+when the key is absent or when no signals are present (e.g. a GET with no
+payload).  For the parse-error ~REASON~ value, call ~read-signals~ directly.
+
+** Compression
+
+Compression is supported on both backends. Zstd is the built-in default; brotli is available by
+loading the optional =datastar-cl/brotli= subsystem. Read =COMPRESSION.org= for the full rationale
+and algorithm details.  On the Clack path, compression uses a ~buffering-writer-stream~ to prevent
+HTTP chunk fragmentation; see =COMPRESSION.org= for the detail.
+
+** Connection registry
+
+When using the CQRS pattern (one long-lived GET for reads, short POSTs for
+commands), a command handler needs to reach all live generators to push an
+update.  The optional ~datastar-cl/registry~ subsystem provides this:
+
+#+begin_src lisp
+(ql:quickload :datastar-cl/registry)
+#+end_src
+
+#+begin_src lisp
+(defvar *clients* (datastar-cl.registry:make-sse-registry "my-app"))
+
+;; Wire registration into with-sse hooks; empty body + :keep-alive parks the
+;; thread and heartbeats automatically -- broadcaster does all the writing.
+(datastar-cl:with-sse
+    (gen hunchentoot:*request*
+     :keep-alive    t
+     :on-connect    (lambda (g) (datastar-cl.registry:register *clients* g))
+     :on-disconnect (lambda (g) (datastar-cl.registry:unregister *clients* g))))
+
+;; Push from any thread -- snapshot, fan-out, auto-unregister dead generators
+(defun broadcast-update (payload)
+  (datastar-cl.registry:notify-subscribers
+   *clients*
+   (lambda (gen) (datastar-cl:patch-signals gen payload))))
+#+end_src
+
+~notify-subscribers~ snapshots the generator list under the lock before
+iterating, so registrations on other threads are never blocked during fan-out.
+Dead generators (broken pipe, closed stream) are caught per-entry, automatically
+unregistered, and collected in the return value.
+
+Multiple named registries are first-class: create one per topic, room, or
+audience with ~make-sse-registry~.  A generator may be registered in several at
+once.  For unicast-by-key (e.g. by session id), keep a separate ~equal~
+hash-table alongside the registry -- see ~examples/glitch-simple/events.lisp~
+for the canonical pattern.
+
+~datastar-cl:call-with-generator~ is the underlying dispatch primitive: it
+defaults to a direct ~funcall~ but can be specialised per backend to post work
+to a generator's owning thread or event loop.  Use it for one-off unicast calls
+in place of a bare ~funcall~ so the same code remains correct on future
+backends.
+
+If you are integrating with a message-passing library (Calispel, NATS, etc.)
+you will roll your own registry and can skip this subsystem entirely.  The
+hand-rolled shape is a list plus a ~bordeaux-threads~ lock:
+
+#+begin_src lisp
+(defvar *clients-lock* (bt:make-lock "clients"))
+(defvar *clients* '())
+
+(defun register-client (gen)
+  (bt:with-lock-held (*clients-lock*)
+    (pushnew gen *clients* :test #'eq)))
+
+(defun unregister-client (gen)
+  (bt:with-lock-held (*clients-lock*)
+    (setf *clients* (remove gen *clients* :test #'eq))))
+
+(defun broadcast (payload)
+  (let (snapshot)
+    (bt:with-lock-held (*clients-lock*)
+      (setq snapshot (copy-list *clients*)))    ; snapshot under lock, iterate outside
+    (dolist (gen snapshot)
+      (handler-case
+          (datastar-cl:call-with-generator
+           gen (lambda (g) (datastar-cl:patch-signals g payload)))
+        (error ()
+          (unregister-client gen))))))
+#+end_src
+
+When you need per-subscriber buffering or mixed-speed clients (so a slow client
+does not block others during fan-out), see the Calispel-channel pattern in
+~examples/glitch/~.
+
+** SSE and Common Lisp webservers
+
+Hunchentoot uses one thread per request, so a body that blocks (a ~loop~ with ~sleep~, a semaphore
+wait) simply parks the request thread at no extra cost. This makes Hunchentoot the natural backend
+for long-lived streaming connections.
+
+Clack is a generic adapter; whether a blocking body is safe depends on the backend it runs against.
+With ~clack-handler-hunchentoot~ (thread-per-request, the backend this SDK tests) a blocking body
+parks only that connection's own thread, so long-lived streams work fine. With async backends such
+as ~clack-handler-woo~ (this includes Woo, Wookie, and libev-based backends in general) a blocking
+body stalls the whole worker and affects every connection on it: use Clack for non-blocking,
+one-shot handlers, or increase the worker count if that fits your load profile.
+
+*History*: this SDK previously shipped ~src/woo.lisp~, a reactor-pattern implementation on top of
+Woo's libev event loop: it replaced the blocking ~with-sse~ body with an ~ev_timer~ callback that
+returned immediately, freeing the worker while the timer drove each registered connection
+periodically. Cross-thread CQRS writes used ~ev_async_send~ to queue work on the owning evloop,
+since Woo streams cannot be written from a foreign thread. The approach was architecturally sound --
+it is the same model as Node.js ~setInterval~ and nginx worker callbacks, to the best of my
+understanding -- but the cost was high: the code required direct CFFI access to internal ~lev~
+symbols (~woo.ev:*evloop*~, ~ev_timer_init~, ~ev_async_send~) not exposed through any public Clack
+or Woo API. This made it fragile against upstream changes and amounted to more than 20% of the total
+source. It was removed in favour of the current simpler design.
+
+The codebase retains clean seams for a future optional ~datastar-cl/woo~ subsystem: the
+~call-with-generator~ generic is already the right dispatch point for the ev-async CQRS path, and
+the ~:on-connect~ / ~:on-disconnect~ hooks in ~with-sse~ handle registration without any
+Woo-specific changes to the core. Conversations about this will be brought up upstream so that any
+changes trickle down to everyone.
+
+** TCP_NODELAY
+
+Without ~TCP_NODELAY~, Nagle's algorithm causes a ~40 ms per-response stall on small back-to-back
+chunked SSE writes. ~lc-sse/hunchentoot~ defines and ~datastar-cl/hunchentoot~ re-exports two names that opt into per-socket
+~TCP_NODELAY~ at the acceptor level:
+
+- ~datastar-cl:tcp-nodelay-mixin~ -- mix into any ~hunchentoot:acceptor~ subclass.
+- ~datastar-cl:tcp-nodelay-easy-acceptor~ -- drop-in for ~hunchentoot:easy-acceptor~;
+  ~define-easy-handler~ continues to work.
+
+#+begin_src lisp
+(hunchentoot:start
+  (make-instance 'datastar-cl:tcp-nodelay-easy-acceptor :port 7331))
+#+end_src
+
+The test servers use ~tcp-nodelay-easy-acceptor~, but in most applications this is negligible:
+the effect is most visible under sustained concurrent streaming workloads.
+
+** Testing
+
+The =tests/= directory contains endpoint fixtures (=tests/fixtures/=), FiveAM unit tests
+(=tests/unit/=), and FiveAM integration tests (=tests/integration/=).
+
+Running the full suite:
+
+#+begin_src bash
+make test
+#+end_src
+
+This runs the integration suite, which starts both servers automatically if they are not
+already running, executes all test groups (SSE, CQRS, compression, and the official Go
+SDK conformance suite), then stops the servers.
+
+From the REPL (servers are started automatically):
+
+#+begin_src lisp
+(asdf:test-system :datastar-cl)
+;; or drive individual test groups directly:
+(datastar-cl/tests/integration:run-all-tests)
+#+end_src
+
+Unit tests only (no servers):
+
+#+begin_src lisp
+(asdf:test-system :datastar-cl-tests/unit)
+#+end_src
+
+Standalone lc-sse tests (verifies the SSE layer independently -- confirms ~datastar-cl~ is
+not loaded as a side-effect):
+
+#+begin_src lisp
+(asdf:test-system :lc-sse-tests)
+#+end_src
+
+** Profiling
+
+Optional ~datastar-cl/profile~ sub-system, SBCL only. Loads ~sb-sprof~ on demand and
+exposes two entry points:
+
+- ~(datastar-cl/profile:profile-in-process)~ -- synthetic in-process workload, no
+  servers required.
+- ~(datastar-cl/profile:profile-http)~ -- end-to-end profile against the running test
+  servers.
+
+Both can also be driven from the Makefile: ~make profile-in-process~ and ~make
+profile-http~. Both accept ~:iterations~, ~:mode~ (~:cpu~ or ~:alloc~), and
+~:report~ (~:flat~ or ~:graph~). ~profile-http~ additionally accepts
+~:accept-encoding~ (default ~"zstd"~) and ~:url~.
+
+** License
+
+The =datastar-cl= SDK is released under the MIT license, following Datastar's licence choice.
+
+The bundled =lc-sse= library (included as a git submodule, eventually as a Quicklisp dependency)
+is licensed under the GNU Lesser General Public License version 3.0 or later (LGPL-3.0-or-later).
+Downstream users should be aware of this composition: the SDK itself is MIT; its SSE foundation is
+LGPL. See =lc-sse/COPYING.LESSER= for the full LGPL text.
+
+** Additional info
+
+Author: Frederico Muñoz / ΛↃ lambda combine

@@ -1,0 +1,28 @@
+* Keep-Alive in datastar-cl
+
+The keep-alive mechanism -- SSE comment heartbeats, the =:keep-alive= keyword, disconnect detection,
+and the two-pattern design (empty body vs non-empty body) -- lives in =lc-sse= and is fully
+documented in the submodule:
+
+See =lc-sse/KEEP-ALIVE.org= (canonical) or
+[[https://codeberg.org/fsm/lc-sse/src/branch/main/KEEP-ALIVE.org][KEEP-ALIVE.org on Codeberg]].
+
+The =with-sse= semantics are identical in =datastar-cl=: the macro calls =lc-sse= machinery
+directly. Examples in that document using =lc-sse:send-event= translate directly to =datastar-cl=
+event functions (=patch-elements=, =patch-signals=, etc.) following the same structural patterns:
+
+#+begin_src lisp
+;; lc-sse pattern:
+(lc-sse:with-sse (gen hunchentoot:*request* :keep-alive 30
+                 :on-connect #'register :on-disconnect #'unregister))
+
+;; datastar-cl equivalent -- with Datastar event functions in :on-connect:
+(datastar-cl:with-sse (gen hunchentoot:*request* :keep-alive 30
+                       :on-connect    (lambda (g)
+                                        (datastar-cl:patch-elements g (initial-html))
+                                        (my-registry:register g))
+                       :on-disconnect #'my-registry:unregister))
+#+end_src
+
+The only datastar-cl-specific consideration is that =:on-connect= naturally fires
+=patch-elements= / =patch-signals= to set initial page state before the request thread parks.

@@ -1,0 +1,70 @@
+#+TITLE: datastar-cl/snooze
+#+AUTHOR: Frederico Muñoz / ΛↃ lambda combine
+
+* Snooze integration
+
+~datastar-cl/snooze~ provides backend-agnostic ~with-sse~ and ~read-signals~ wrappers
+for use inside ~snooze:defroute~ bodies.
+
+#+begin_src lisp
+(ql:quickload :datastar-cl/snooze)
+#+end_src
+
+** Motivation
+
+Without this subsystem, a Snooze route that sends SSE events must branch on the backend:
+
+#+begin_src lisp
+;; Before -- two different route bodies for the same endpoint
+
+;; Hunchentoot
+(snooze:defroute my-stream (:get :text/event-stream)
+  (datastar-cl:with-sse (gen hunchentoot:*request*)
+    (datastar-cl:patch-signals gen payload)))
+
+;; Clack
+(snooze:defroute my-stream (:get :text/event-stream)
+  (let ((env snooze:*clack-request-env*))
+    (lambda (responder)
+      (datastar-cl:with-sse (gen (env responder))
+        (datastar-cl:patch-signals gen payload)))))
+#+end_src
+
+With the subsystem, one route body works on both backends:
+
+#+begin_src lisp
+;; After -- identical source, backend picked at runtime
+(snooze:defroute my-stream (:get :text/event-stream)
+  (let ((signals (datastar-cl/snooze:read-signals)))
+    (datastar-cl/snooze:with-sse (gen)
+      (when signals
+        (datastar-cl:patch-signals gen signals)))))
+#+end_src
+
+The body shape determines connection lifetime, exactly as with the core ~with-sse~ macro:
+a body that returns immediately closes the connection; a body that blocks keeps it open.
+
+** Reading multiple signals
+
+~datastar-cl/snooze:with-signals~ is a destructuring macro that resolves the backend
+automatically (no request argument), consistent with ~read-signals~ and ~with-sse~ in
+this package.  It calls ~read-signals~ exactly once and binds multiple values:
+
+#+begin_src lisp
+;; POST handler reading two signals
+(snooze:defroute greet (:post :application/json &key datastar)
+  (declare (ignore datastar))
+  (datastar-cl/snooze:with-signals ((salutation "salutation" "Hello")
+                                    (name       "name"       "World"))
+    (broadcast (lambda (gen)
+                 (datastar-cl:patch-signals gen
+                   (list "greeting" (format nil "~a, ~a!" salutation name)))))))
+#+end_src
+
+Each binding is ~(var "key")~ or ~(var "key" default)~.
+
+** Prerequisite
+
+The Clack arm requires the Snooze ~make-clack-app~ function-payload patch from the
+~clack-stream~ branch (or the upstream PR once merged). Without it, Clack squashes the
+responder closure into a plain 3-tuple and the stream never opens.
