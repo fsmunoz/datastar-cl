@@ -51,17 +51,24 @@
     (stop-server))
   (dsn-updater)
   (let* ((max-threads (read-env-int "MAX_THREADS" *default-max-threads*))
-         (max-accept  (read-env-int "MAX_ACCEPT"  (+ max-threads 100))))
-    (setf *server* (hunchentoot:start
+         (max-accept  (read-env-int "MAX_ACCEPT"  (+ max-threads 100)))
+         (tm (make-instance 'hunchentoot:one-thread-per-connection-taskmaster
+                            :max-thread-count max-threads
+                            :max-accept-count max-accept)))         
+    (setf *taskmaster* tm
+          *stats-fn* (lambda ()
+                       (let ((used (hunchentoot:taskmaster-thread-count tm))
+                             (max  (hunchentoot:taskmaster-max-thread-count tm)))
+                         (spinneret:with-html-string
+                           (:span :id "server-stats" (format nil "c ~D/~D" used max)))))
+          *server* (hunchentoot:start
                     (make-instance 'hunchentoot:easy-acceptor
                                    :port port
-                                   :address address
-                                   :taskmaster
-                                   (make-instance 'hunchentoot:one-thread-per-connection-taskmaster
-                                                  :max-thread-count max-threads
-                                                  :max-accept-count max-accept))))
-    (format t "~&# Threads: ~D~%" max-threads))
+                                   :taskmaster tm)))
+    (format t "~&Started Hunchentoot at port ~D - Threads: ~D~%" port max-threads))
   *server*)
+
+
 
 (defun stop-server ()
   "Stop the web server."

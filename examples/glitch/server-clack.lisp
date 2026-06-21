@@ -60,9 +60,16 @@
 
 (defun main-clack ()
   "Toplevel for a standalone Clack+Woo executable: start server, block until
-   Ctrl-C / SIGINT, then cleanly stop."
+   Ctrl-C / SIGINT or SIGTERM (systemctl stop), then cleanly stop."
   (start-clack-server)
+  #+sbcl
+  (sb-sys:enable-interrupt
+   sb-unix:sigterm
+   (lambda (&rest args)
+     (declare (ignore args))
+     (stop-clack-server)
+     (sb-ext:exit 0)))
   (handler-case (loop (sleep 60))
     (#+sbcl sb-sys:interactive-interrupt
      #-sbcl error ()
-      (when *clack-server* (clack:stop *clack-server*)))))
+      (stop-clack-server))))
